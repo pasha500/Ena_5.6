@@ -1,0 +1,15 @@
+﻿Name,NodeId,PosX,PosY,PosZ,ZoneId,RoomType,RoomRole,Difficulty,CombatWeight,BotProfile,EnemyPreset,LootLevel,RoomSize,Connections,NodeTags,RoomPrefabId,SpawnCount,LootCount,EnvType,Theme,ObstacleDensity,Seed,LootStrategy,EnterableBuildingRatio,TraversalLaneSeeds
+RaidNode_0,0,0.0,0.0,0.0,1,Start,Start,1.0,0.2,Tactical,None,Common,Medium,1,"안전 지대 (Safe Zone), ['Jungle']",1,10,20,Urban,Jungle,0.5,93679,Scattered,0.8,1
+RaidNode_1,1,-5476.384161424797,-8730.560520547528,0.0,2,Combat,Combat,1.0,0.3,Tactical,None,Common,Large,"0,2,3","교전 구역 (Combat Sector), ['Jungle']",2,15,30,Urban,Jungle,0.6,29814,Scattered,0.7,3
+RaidNode_2,2,-9159.779019215399,5384.150194704953,0.0,3,Combat,Combat,1.0,1.0,Tactical,None,Common,Massive,"1,3","교전 구역 (Combat Sector), ['Jungle']",3,20,10,Urban,Jungle,0.7,23210,Scattered,0.6,5
+RaidNode_3,3,9159.779019215399,-5384.150194704954,0.0,4,Loot,Loot,1.0,0.1,Tactical,None,Common,Large,"2,4,1","보급 구역 (Supply Area), ['Jungle']",4,5,40,Urban,Jungle,0.8,31824,Scattered,0.9,7
+RaidNode_4,4,4972.488734338366,15141.937195645674,0.0,5,Loot,Loot,1.0,0.2,Tactical,None,Common,Medium,"3,5","보급 구역 (Supply Area), ['Jungle']",5,10,50,Urban,Jungle,0.9,90077,Scattered,0.8,8
+RaidNode_5,5,-18402.421737339744,10626.07049671165,0.0,6,Loot,Loot,1.0,0.3,Tactical,None,Common,Small,"4,6","보급 구역 (Supply Area), ['Jungle']",6,5,60,Urban,Jungle,1.0,48719,Scattered,0.7,8
+RaidNode_6,6,26184.16483478563,4467.204736160586,0.0,7,Combat,Combat,1.0,1.2,Tactical,None,Common,Massive,"5,7","교전 구역 (Combat Sector), ['Jungle']",7,25,20,Urban,Jungle,0.9,74954,Scattered,0.6,8
+RaidNode_7,7,-24172.84080710187,-20777.136287624206,0.0,8,Loot,Loot,1.0,0.4,Tactical,None,Common,Large,"6,8","보급 구역 (Supply Area), ['Jungle']",8,10,64,Urban,Jungle,1.0,74827,Scattered,0.5,8
+RaidNode_8,8,38040.61175924239,-1874.0006950797415,0.0,9,Combat,Combat,1.6,2.0,Tactical,None,Common,Massive,"7,9","교전 구역 (Combat Sector), ['Jungle']",9,50,64,Urban,Jungle,1.0,33697,Scattered,0.4,8
+RaidNode_9,9,-12535.190287871614,-40609.34626963169,0.0,10,Loot,Loot,1.0,0.5,Tactical,None,Common,Small,"8,10","보급 구역 (Supply Area), ['Jungle']",10,5,64,Urban,Jungle,1.0,35592,Scattered,0.3,8
+RaidNode_10,10,-47808.7242138653,600.8704457444343,0.0,11,Combat,Combat,1.6,2.5,Tactical,None,Common,Massive,"9,11","교전 구역 (Combat Sector), ['Jungle']",11,64,64,Urban,Jungle,1.0,12920,Scattered,0.2,8
+RaidNode_11,11,-50662.5569757718,10142.742179082172,0.0,12,Loot,Loot,1.0,0.6,Tactical,None,Common,Medium,"10,12","보급 구역 (Supply Area), ['Jungle']",12,10,64,Urban,Jungle,1.0,11273,Scattered,0.1,8
+RaidNode_12,12,-48097.16533261976,-33190.421708930415,0.0,13,Loot,Loot,1.0,0.7,Tactical,None,Common,Small,"11,13","보급 구역 (Supply Area), ['Jungle']",13,5,64,Urban,Jungle,1.0,64567,Scattered,0.0,8
+RaidNode_13,13,-42238.8149300384,-47748.76975698919,0.0,14,Exit,Exit,1.6,3.0,Tactical,None,Common,Massive,12,"탈출 지점 (Extraction Point), ['Jungle']",14,64,64,Urban,Jungle,1.0,65490,Scattered,0.0,2

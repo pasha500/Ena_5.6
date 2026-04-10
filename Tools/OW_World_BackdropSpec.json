@@ -1,0 +1,72 @@
+{
+  "version": 1,
+  "source_csv": "DT_AI_Raid_Design.csv",
+  "enabled": true,
+  "dominant_env": "Urban",
+  "env_mix": {
+    "Urban": 6,
+    "NatureVillage": 3
+  },
+  "backdrop": {
+    "outer_radius": 381837,
+    "density": 2.2,
+    "landscape_deformation_strength": 1.15,
+    "auto_create_landscape_if_missing": true
+  },
+  "world": {
+    "width_m": 5000,
+    "height_m": 5000,
+    "landscape_mode": "procedural_heightmap"
+  },
+  "features": {
+    "mountain": false,
+    "river": true,
+    "lake": false,
+    "cliff": true,
+    "valley": false,
+    "roads": true,
+    "trails": false,
+    "landmarks": true
+  },
+  "regional_layout": {
+    "north_env": null,
+    "south_env": null,
+    "east_env": null,
+    "west_env": null,
+    "center_feature": null,
+    "mode": "advisory"
+  },
+  "gameplay": {
+    "boss_required": true,
+    "ai_population": true,
+    "loot_supported": true,
+    "connected_paths_required": true
+  },
+  "visual": {
+    "photoreal_preset": true,
+    "auto_lighting": true,
+    "auto_postprocess": true
+  },
+  "dem": {
+    "enabled": true,
+    "prefer_dem": true,
+    "heightmap_path": "OW_Heightmap.r16",
+    "width": 1009,
+    "height": 1009,
+    "z_scale": 140.0,
+    "gdal_translate": "gdal_translate"
+  },
+  "roads": {
+    "enabled": true,
+    "spline_count": 6,
+    "lane_width": 560.0,
+    "point_spacing": 1400.0,
+    "connectivity_ratio": 0.6,
+    "scenic_spline_count": 4,
+    "prefer_freeform": true
+  },
+  "layout_constraints": {
+    "connected_room_distance_min_m": 10,
+    "connected_room_distance_max_m": 200
+  }
+}

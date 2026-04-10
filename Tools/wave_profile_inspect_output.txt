@@ -1,0 +1,13 @@
+[WaveProfile] Asset=/Game/Game/AILevel/Data/DT_RaidWaveProfile.DT_RaidWaveProfile Class=RaidWaveProfile
+[WaveProfile] TotalDynamicWaves=10
+[WaveProfile] StageCount=10
+[WaveProfile] 01: label=Wave 01 - Contact min=6500.0 max=12000.0 scatter=1800.0 enemies=0
+[WaveProfile] 02: label=Wave 02 - Probe min=6300.0 max=11800.0 scatter=1750.0 enemies=0
+[WaveProfile] 03: label=Wave 03 - Pressure min=6100.0 max=11500.0 scatter=1700.0 enemies=0
+[WaveProfile] 04: label=Wave 04 - Fireline min=5900.0 max=11200.0 scatter=1650.0 enemies=0
+[WaveProfile] 05: label=Wave 05 - Encircle min=5700.0 max=10800.0 scatter=1600.0 enemies=0
+[WaveProfile] 06: label=Wave 06 - Reinforce min=5500.0 max=10400.0 scatter=1550.0 enemies=0
+[WaveProfile] 07: label=Wave 07 - Hunt min=5300.0 max=10000.0 scatter=1450.0 enemies=0
+[WaveProfile] 08: label=Wave 08 - Collapse min=5000.0 max=9600.0 scatter=1350.0 enemies=0
+[WaveProfile] 09: label=Wave 09 - Last Push min=4700.0 max=9000.0 scatter=1250.0 enemies=0
+[WaveProfile] 10: label=Wave 10 - Boss min=4400.0 max=8400.0 scatter=1150.0 enemies=0
