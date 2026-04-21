@@ -33,6 +33,7 @@
 #include "ContentBrowserModule.h"
 #include "IContentBrowserSingleton.h"
 #include "Engine/Blueprint.h"
+#include "Editor.h"
 #include "Modules/ModuleManager.h"
 #endif
 
@@ -2034,6 +2035,123 @@ ARaidLayoutManager::ARaidLayoutManager()
         SceneRoot->SetMobility(EComponentMobility::Static);
     }
 }
+
+void ARaidLayoutManager::OnConstruction(const FTransform& Transform)
+{
+    Super::OnConstruction(Transform);
+#if WITH_EDITOR
+    EnsurePreBeginPieAutoBakeHook();
+#endif
+}
+
+void ARaidLayoutManager::BeginDestroy()
+{
+#if WITH_EDITOR
+    RemovePreBeginPieAutoBakeHook();
+#endif
+    Super::BeginDestroy();
+}
+
+#if WITH_EDITOR
+void ARaidLayoutManager::EnsurePreBeginPieAutoBakeHook()
+{
+    if (PreBeginPieDelegateHandle.IsValid())
+    {
+        return;
+    }
+
+    if (IsTemplate() || HasAnyFlags(RF_ClassDefaultObject))
+    {
+        return;
+    }
+
+    UWorld* World = GetWorld();
+    if (!World || World->WorldType != EWorldType::Editor)
+    {
+        return;
+    }
+
+    PreBeginPieDelegateHandle = FEditorDelegates::PreBeginPIE.AddUObject(this, &ARaidLayoutManager::HandlePreBeginPie);
+}
+
+void ARaidLayoutManager::RemovePreBeginPieAutoBakeHook()
+{
+    if (!PreBeginPieDelegateHandle.IsValid())
+    {
+        return;
+    }
+
+    FEditorDelegates::PreBeginPIE.Remove(PreBeginPieDelegateHandle);
+    PreBeginPieDelegateHandle.Reset();
+}
+
+void ARaidLayoutManager::HandlePreBeginPie(bool bIsSimulating)
+{
+    if (bIsSimulating || !bAutoBakeLayoutBeforePIE)
+    {
+        return;
+    }
+
+    if (IsTemplate() || HasAnyFlags(RF_ClassDefaultObject))
+    {
+        return;
+    }
+
+    UWorld* World = GetWorld();
+    if (!World || World->WorldType != EWorldType::Editor)
+    {
+        return;
+    }
+
+    if (!GEditor)
+    {
+        return;
+    }
+
+    UWorld* EditorWorld = GEditor->GetEditorWorldContext().World();
+    if (!EditorWorld || World != EditorWorld)
+    {
+        return;
+    }
+
+    bool bHasPrebuiltRooms = false;
+    for (TActorIterator<ARaidRoomActor> It(World); It; ++It)
+    {
+        if (IsValid(*It))
+        {
+            bHasPrebuiltRooms = true;
+            break;
+        }
+    }
+
+    if (bAutoBakeOnlyIfNoPrebuiltRooms && bHasPrebuiltRooms)
+    {
+        UE_LOG(
+            LogTemp,
+            Warning,
+            TEXT("[RaidLayout] Pre-PIE auto-bake skipped (prebuilt rooms already exist)."));
+        return;
+    }
+
+    if (!IsValid(ChapterConfig) || !IsValid(ChapterConfig->LevelDataTable))
+    {
+        UE_LOG(
+            LogTemp,
+            Warning,
+            TEXT("[RaidLayout] Pre-PIE auto-bake skipped (ChapterConfig or LevelDataTable is missing)."));
+        return;
+    }
+
+    UE_LOG(
+        LogTemp,
+        Warning,
+        TEXT("[RaidLayout] Pre-PIE auto-bake started. Mode=%s"),
+        bAutoBakeOnlyIfNoPrebuiltRooms ? TEXT("IfMissing") : TEXT("Always"));
+
+    SpawnRaidLayout();
+}
+#endif
+
 void ARaidLayoutManager::BeginPlay()
 {
     Super::BeginPlay();
@@ -2115,12 +2233,54 @@ void ARaidLayoutManager::BeginPlay()
             return A.GetNodeId() < B.GetNodeId();
         });
 
+    TMap<int32, FLevelNodeRow> LevelRowsByNodeId;
+    if (IsValid(ChapterConfig) && IsValid(ChapterConfig->LevelDataTable))
+    {
+        TArray<FLevelNodeRow*> TableRows;
+        ChapterConfig->LevelDataTable->GetAllRows<FLevelNodeRow>(TEXT("RaidLayout.PrebuiltBeginPlay"), TableRows);
+        for (const FLevelNodeRow* TableRow : TableRows)
+        {
+            if (!TableRow || TableRow->NodeId <= 0)
+            {
+                continue;
+            }
+
+            LevelRowsByNodeId.FindOrAdd(TableRow->NodeId) = *TableRow;
+        }
+    }
+
+    const bool bIsGameWorld = World && World->IsGameWorld();
+    int32 ReboundRoomConfigCount = 0;
+    int32 SyncedNodeRowFromTableCount = 0;
+    int32 RegeneratedRoomLayoutCount = 0;
     ARaidRoomActor* StartRoom = nullptr;
     for (ARaidRoomActor* Room : ExistingRooms)
     {
         if (!IsValid(Room))
         {
             continue;
+        }
+
+        if (IsValid(ChapterConfig))
+        {
+            FLevelNodeRow EffectiveNodeRow = Room->GetNodeRow();
+            int32 EffectiveNodeId = Room->GetNodeId() > 0 ? Room->GetNodeId() : EffectiveNodeRow.NodeId;
+
+            if (const FLevelNodeRow* TableRow = LevelRowsByNodeId.Find(EffectiveNodeId))
+            {
+                EffectiveNodeRow = *TableRow;
+                EffectiveNodeId = EffectiveNodeRow.NodeId;
+                ++SyncedNodeRowFromTableCount;
+            }
+
+            Room->SetNodeData(EffectiveNodeId, EffectiveNodeRow, ChapterConfig);
+            ++ReboundRoomConfigCount;
+        }
+
+        if (bIsGameWorld && bRegeneratePrebuiltRoomLayoutOnBeginPlay)
+        {
+            Room->GenerateRoomLayout();
+            ++RegeneratedRoomLayoutCount;
         }
 
         CombatSub->RegisterRoom(Room);
@@ -2150,7 +2310,15 @@ void ARaidLayoutManager::BeginPlay()
         CombatSub->ApplyWaveProfile(WaveProfileToApply);
     }
 
-    UE_LOG(LogTemp, Warning, TEXT("[RaidLayout] BeginPlay kept prebuilt layout. Registered rooms=%d"), ExistingRooms.Num());
+    UE_LOG(
+        LogTemp,
+        Warning,
+        TEXT("[RaidLayout] BeginPlay kept prebuilt layout. Registered rooms=%d ReboundConfig=%d SyncedNodeRows=%d RegeneratedLayout=%d RuntimeRegeneration=%s"),
+        ExistingRooms.Num(),
+        ReboundRoomConfigCount,
+        SyncedNodeRowFromTableCount,
+        RegeneratedRoomLayoutCount,
+        bRegeneratePrebuiltRoomLayoutOnBeginPlay ? TEXT("On") : TEXT("Off"));
 }
 
 // 🔥 [신규] CSV 기반 맞춤형 더미 자동 생성 함수
@@ -3304,7 +3472,7 @@ void ARaidLayoutManager::SpawnRaidLayout()
 #endif
         }
     }
-    ConnectRoomDoors(); GenerateRoadSplineNetwork(TEXT("Default")); ScatterBackgroundScenery();
+    ConnectRoomDoors(); ScatterBackgroundScenery();
     // =========================================================
     // [핵심 추가] 맵 생성이 끝나면 콤파스 시스템을 강제로 1회 초기화!
     // =========================================================

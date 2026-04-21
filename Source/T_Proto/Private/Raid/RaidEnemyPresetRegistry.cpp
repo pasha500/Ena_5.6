@@ -130,6 +130,100 @@ void URaidEnemyPresetRegistry::PreloadAllEnemyPresetClasses(bool bLogSummary) co
     }
 }
 
+void URaidEnemyPresetRegistry::GatherPreloadAssetPaths(TArray<FSoftObjectPath>& OutPaths) const
+{
+    for (const TPair<FName, FRaidEnemyPreset>& Pair : Presets)
+    {
+        const FRaidEnemyPreset& Preset = Pair.Value;
+        for (const TSoftClassPtr<APawn>& SoftEnemyClass : Preset.EnemyClasses)
+        {
+            if (!SoftEnemyClass.IsNull())
+            {
+                OutPaths.AddUnique(SoftEnemyClass.ToSoftObjectPath());
+            }
+        }
+    }
+
+    if (!RepairFallbackSkeletalMesh.IsNull())
+    {
+        OutPaths.AddUnique(RepairFallbackSkeletalMesh.ToSoftObjectPath());
+    }
+
+    if (!RepairFallbackAnimClass.IsNull())
+    {
+        OutPaths.AddUnique(RepairFallbackAnimClass.ToSoftObjectPath());
+    }
+}
+
+void URaidEnemyPresetRegistry::PrimeLoadedEnemyPresetClassDefaults(bool bLogSummary) const
+{
+    int32 PrimedCount = 0;
+    int32 MissingCount = 0;
+
+    for (const TPair<FName, FRaidEnemyPreset>& Pair : Presets)
+    {
+        const FRaidEnemyPreset& Preset = Pair.Value;
+        for (const TSoftClassPtr<APawn>& SoftEnemyClass : Preset.EnemyClasses)
+        {
+            if (SoftEnemyClass.IsNull())
+            {
+                continue;
+            }
+
+            if (UClass* LoadedClass = SoftEnemyClass.Get())
+            {
+                if (!LoadedClass->HasAnyClassFlags(CLASS_Abstract | CLASS_Deprecated))
+                {
+                    LoadedClass->GetDefaultObject();
+                    ++PrimedCount;
+                }
+                else
+                {
+                    ++MissingCount;
+                }
+            }
+            else
+            {
+                ++MissingCount;
+            }
+        }
+    }
+
+    if (!RepairFallbackSkeletalMesh.IsNull())
+    {
+        if (RepairFallbackSkeletalMesh.Get())
+        {
+            ++PrimedCount;
+        }
+        else
+        {
+            ++MissingCount;
+        }
+    }
+
+    if (!RepairFallbackAnimClass.IsNull())
+    {
+        if (RepairFallbackAnimClass.Get())
+        {
+            ++PrimedCount;
+        }
+        else
+        {
+            ++MissingCount;
+        }
+    }
+
+    if (bLogSummary)
+    {
+        UE_LOG(
+            LogTemp,
+            Warning,
+            TEXT("[RaidEnemyPresetRegistry] Async-prime complete. Primed=%d Missing=%d"),
+            PrimedCount,
+            MissingCount);
+    }
+}
+
 TSubclassOf<APawn> URaidEnemyPresetRegistry::ResolveEnemyClassFromPreset(FName PresetId) const
 {
     FRandomStream Rng((int32)(GetTypeHash(PresetId) ^ FMath::Rand()));

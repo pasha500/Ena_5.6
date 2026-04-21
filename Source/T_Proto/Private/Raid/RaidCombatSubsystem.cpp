@@ -9,6 +9,7 @@
 #include "Engine/World.h"
 #include "NavigationSystem.h"
 #include "AIController.h"
+#include "Perception/AISense_Hearing.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/Controller.h"
@@ -102,6 +103,46 @@ namespace
         }
 
         return false;
+    }
+
+    bool HasMeshTypeLikeTag(const TArray<FName>& Tags)
+    {
+        for (const FName& Tag : Tags)
+        {
+            const FString TagName = Tag.ToString();
+            if (TagName.StartsWith(TEXT("MeshType_")) || TagName.StartsWith(TEXT("RaidRoomNode_")))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    bool IsRaidRoomGameplayTraceComponent(AActor* Candidate, UPrimitiveComponent* Primitive)
+    {
+        if (!IsValid(Candidate) || !IsValid(Primitive))
+        {
+            return false;
+        }
+
+        const FString ActorClassName = Candidate->GetClass()->GetName();
+        const bool bActorIsRaidRoomLike =
+            ActorClassName.Contains(TEXT("RaidRoomActor"), ESearchCase::IgnoreCase);
+
+        const bool bActorTaggedAsRoomGameplay =
+            Candidate->ActorHasTag(TEXT("RaidRoomGenerated")) ||
+            Candidate->ActorHasTag(TEXT("RaidDoorBlocker")) ||
+            Candidate->ActorHasTag(TEXT("ObstacleBlueprint")) ||
+            HasMeshTypeLikeTag(Candidate->Tags);
+
+        const bool bComponentTaggedAsRoomGameplay =
+            Primitive->ComponentHasTag(TEXT("RaidRoomRuntimeISMC")) ||
+            Primitive->ComponentHasTag(TEXT("RaidRuntimeISMC")) ||
+            Primitive->ComponentHasTag(TEXT("ObstacleBlueprint")) ||
+            HasMeshTypeLikeTag(Primitive->ComponentTags);
+
+        return bActorIsRaidRoomLike || bActorTaggedAsRoomGameplay || bComponentTaggedAsRoomGameplay;
     }
 
     bool ReadBoolPropertyValue(const UObject* TargetObject, const FName PropertyName, bool& OutValue)
@@ -420,6 +461,13 @@ namespace
             return false;
         }
 
+        if (IsRaidRoomGameplayTraceComponent(Candidate, Primitive))
+        {
+            // Raid room gameplay geometry must keep trace/collision responses.
+            // Sanitizing these components breaks climb/mantle detection on spawned room meshes.
+            return false;
+        }
+
         if (IsDropSoulObject(Candidate) || IsDropSoulObject(Primitive) || IsDropSoulObject(Primitive->GetOwner()))
         {
             return false;
@@ -465,6 +513,11 @@ namespace
     bool ShouldDisableQueryCollisionForTraceBlocker(AActor* Candidate, UPrimitiveComponent* Primitive)
     {
         if (!IsValid(Candidate) || !IsValid(Primitive))
+        {
+            return false;
+        }
+
+        if (IsRaidRoomGameplayTraceComponent(Candidate, Primitive))
         {
             return false;
         }
@@ -1734,18 +1787,6 @@ void URaidCombatSubsystem::UpdateEnemySearchBehavior(APawn* EnemyPawn, int32 Roo
         return;
     }
 
-    if (bDisableCustomSearchForStateTreeControllers)
-    {
-        const FString ControllerClassName = AIController->GetClass()->GetName();
-        const FString ControllerClassPath = AIController->GetClass()->GetPathName();
-        if (
-            ContainsAnyToken(ControllerClassName, { TEXT("HumanEnemyController"), TEXT("StateTree"), TEXT("AI_HumanEnemyController") }) ||
-            ContainsAnyToken(ControllerClassPath, { TEXT("Human_AI_Logic"), TEXT("StateTree"), TEXT("STT_HumanAI") }))
-        {
-            return;
-        }
-    }
-
     const TWeakObjectPtr<APawn> WeakPawn(EnemyPawn);
     const double ActivationTime = EnemySearchActivationTimeByPawn.FindRef(WeakPawn);
     if (ActivationTime > 0.0 && NowSeconds < ActivationTime)
@@ -1767,8 +1808,28 @@ void URaidCombatSubsystem::UpdateEnemySearchBehavior(APawn* EnemyPawn, int32 Roo
         ((bGunfireDetected && DistanceToPlayer <= FMath::Max(500.0f, EnemyGunshotHearingDistance)) ||
             DistanceToPlayer <= FMath::Max(500.0f, EnemyAutoChaseDistance));
 
+    const FString ControllerClassName = AIController->GetClass()->GetName();
+    const FString ControllerClassPath = AIController->GetClass()->GetPathName();
+    const bool bIsStateTreeLikeController =
+        ContainsAnyToken(ControllerClassName, { TEXT("HumanEnemyController"), TEXT("StateTree"), TEXT("AI_HumanEnemyController") }) ||
+        ContainsAnyToken(ControllerClassPath, { TEXT("Human_AI_Logic"), TEXT("StateTree"), TEXT("STT_HumanAI") });
+
     const float AcceptanceRadius = FMath::Max(50.0f, EnemySearchAcceptanceRadius);
     double NextScheduleTime = NowSeconds + FMath::Max(0.20f, EnemySearchPatrolInterval);
+
+    if (bDisableCustomSearchForStateTreeControllers && bIsStateTreeLikeController)
+    {
+        // Keep StateTree as owner of detailed behavior, but add a minimal reactive assist
+        // so enemies never stay idle during obvious gunfire/close-threat moments.
+        if (bEnableStateTreeReactiveSearchAssist && bShouldChasePlayer)
+        {
+            AIController->SetFocus(PlayerPawn);
+            AIController->MoveToActor(PlayerPawn, AcceptanceRadius, true, true, true, nullptr, true);
+            const double AssistRepathInterval = FMath::Max(0.10f, StateTreeReactiveSearchRepathInterval);
+            EnemySearchNextOrderTimeByPawn.Add(WeakPawn, NowSeconds + AssistRepathInterval);
+        }
+        return;
+    }
 
     if (bShouldChasePlayer)
     {
@@ -2161,6 +2222,7 @@ void URaidCombatSubsystem::PreloadWarmupAssets()
 
     WarmupAssets.AddUnique(FSoftObjectPath(TEXT("/Game/Game/AILevel/Blueprints/Interfaces/WBP_RaidRegionBanner.WBP_RaidRegionBanner_C")));
     WarmupAssets.AddUnique(FSoftObjectPath(TEXT("/Game/Game/AILevel/Blueprints/Interfaces/WBP_RaidCompass.WBP_RaidCompass_C")));
+    WarmupAssets.AddUnique(FSoftObjectPath(TEXT("/Game/Game/AILevel/Blueprints/Interfaces/WBP_ItemDot.WBP_ItemDot_C")));
     WarmupAssets.AddUnique(FSoftObjectPath(TEXT("/Game/Game/Particles/NiagaraBloodFX/NS_BloodEffect_02.NS_BloodEffect_02")));
     WarmupAssets.AddUnique(FSoftObjectPath(TEXT("/Game/Game/Particles/NiagaraBloodFX/NS_BloodBurts_01.NS_BloodBurts_01")));
     WarmupAssets.AddUnique(FSoftObjectPath(TEXT("/Game/AdvancedLocomotionV4/Drop_VFX/NS_DropSoul.NS_DropSoul")));
@@ -2184,7 +2246,38 @@ void URaidCombatSubsystem::PreloadWarmupAssets()
         return;
     }
 
-    UAssetManager::GetStreamableManager().RequestSyncLoad(WarmupAssets, false);
+    FStreamableManager& StreamableManager = UAssetManager::GetStreamableManager();
+    if (!bEnableAsyncRuntimeAssetWarmup)
+    {
+        StreamableManager.RequestSyncLoad(WarmupAssets, false);
+        bRuntimeAssetWarmupRequested = false;
+        RuntimeWarmupHandle.Reset();
+        return;
+    }
+
+    if (bRuntimeAssetWarmupRequested)
+    {
+        return;
+    }
+
+    bRuntimeAssetWarmupRequested = true;
+    TWeakObjectPtr<URaidCombatSubsystem> WeakThis(this);
+    RuntimeWarmupHandle = StreamableManager.RequestAsyncLoad(
+        WarmupAssets,
+        FStreamableDelegate::CreateLambda([WeakThis]()
+            {
+                if (URaidCombatSubsystem* StrongThis = WeakThis.Get())
+                {
+                    StrongThis->bRuntimeAssetWarmupRequested = false;
+                    StrongThis->RuntimeWarmupHandle.Reset();
+                }
+            }));
+
+    if (!RuntimeWarmupHandle.IsValid())
+    {
+        bRuntimeAssetWarmupRequested = false;
+        StreamableManager.RequestSyncLoad(WarmupAssets, false);
+    }
 }
 
 void URaidCombatSubsystem::SpawnHiddenWarmupEnemy(const URaidEnemyPresetRegistry* Registry)
@@ -2585,12 +2678,71 @@ void URaidCombatSubsystem::PrimeRuntimeAssets(const URaidChapterConfig* ChapterC
 
     if (!bEnemyPresetClassesPrimed && ChapterConfig && ChapterConfig->EnemyPresetRegistry)
     {
-        ChapterConfig->EnemyPresetRegistry->PreloadAllEnemyPresetClasses(bEnableCombatPerfLogs);
-        if (bEnableRuntimeAssetWarmup)
+        const URaidEnemyPresetRegistry* ConstRegistry = ChapterConfig->EnemyPresetRegistry.Get();
+        URaidEnemyPresetRegistry* Registry = const_cast<URaidEnemyPresetRegistry*>(ConstRegistry);
+        if (bEnableAsyncEnemyPresetPreload)
         {
-            SpawnHiddenWarmupEnemy(ChapterConfig->EnemyPresetRegistry);
+            if (!bEnemyPresetWarmupRequested)
+            {
+                TArray<FSoftObjectPath> EnemyPresetWarmupAssets;
+                Registry->GatherPreloadAssetPaths(EnemyPresetWarmupAssets);
+
+                if (EnemyPresetWarmupAssets.Num() == 0)
+                {
+                    bEnemyPresetClassesPrimed = true;
+                }
+                else
+                {
+                    bEnemyPresetWarmupRequested = true;
+                    TWeakObjectPtr<URaidCombatSubsystem> WeakThis(this);
+                    TWeakObjectPtr<URaidEnemyPresetRegistry> WeakRegistry(Registry);
+                    EnemyPresetWarmupHandle = UAssetManager::GetStreamableManager().RequestAsyncLoad(
+                        EnemyPresetWarmupAssets,
+                        FStreamableDelegate::CreateLambda([WeakThis, WeakRegistry]()
+                            {
+                                URaidCombatSubsystem* StrongThis = WeakThis.Get();
+                                if (!StrongThis)
+                                {
+                                    return;
+                                }
+
+                                StrongThis->bEnemyPresetWarmupRequested = false;
+                                StrongThis->EnemyPresetWarmupHandle.Reset();
+
+                                if (URaidEnemyPresetRegistry* LoadedRegistry = WeakRegistry.Get())
+                                {
+                                    LoadedRegistry->PrimeLoadedEnemyPresetClassDefaults(StrongThis->bEnableCombatPerfLogs);
+                                    if (StrongThis->bEnableRuntimeAssetWarmup)
+                                    {
+                                        StrongThis->SpawnHiddenWarmupEnemy(LoadedRegistry);
+                                    }
+                                }
+
+                                StrongThis->bEnemyPresetClassesPrimed = true;
+                            }));
+
+                    if (!EnemyPresetWarmupHandle.IsValid())
+                    {
+                        bEnemyPresetWarmupRequested = false;
+                        Registry->PreloadAllEnemyPresetClasses(bEnableCombatPerfLogs);
+                        if (bEnableRuntimeAssetWarmup)
+                        {
+                            SpawnHiddenWarmupEnemy(Registry);
+                        }
+                        bEnemyPresetClassesPrimed = true;
+                    }
+                }
+            }
         }
-        bEnemyPresetClassesPrimed = true;
+        else
+        {
+            Registry->PreloadAllEnemyPresetClasses(bEnableCombatPerfLogs);
+            if (bEnableRuntimeAssetWarmup)
+            {
+                SpawnHiddenWarmupEnemy(Registry);
+            }
+            bEnemyPresetClassesPrimed = true;
+        }
     }
 
     SyncBandageHealFromLootDataTable();
@@ -2627,12 +2779,26 @@ void URaidCombatSubsystem::ResetSubsystem()
     bFoliageTraceCollisionSanitized = false;
     bBloodTraceSettingsPatched = false;
     bRuntimeAssetsPrimed = false;
+    bRuntimeAssetWarmupRequested = false;
     bEnemyPresetClassesPrimed = false;
+    bEnemyPresetWarmupRequested = false;
     bBandageHealSyncedFromLootDataTable = false;
     NextFoliageSanitizeRetryTimeSeconds = 0.0;
     NextBloodDecalCleanupTimeSeconds = 0.0;
     NextFallbackEnemySweepTimeSeconds = 0.0;
     NextDropSoulRepairTimeSeconds = 0.0;
+    NextPlayerGunfireNoiseReportTimeSeconds = 0.0;
+    RecentSpawnHeavyWorkDeferUntilSeconds = 0.0;
+    if (RuntimeWarmupHandle.IsValid())
+    {
+        RuntimeWarmupHandle->CancelHandle();
+        RuntimeWarmupHandle.Reset();
+    }
+    if (EnemyPresetWarmupHandle.IsValid())
+    {
+        EnemyPresetWarmupHandle->CancelHandle();
+        EnemyPresetWarmupHandle.Reset();
+    }
     DropSoulSpawnCountByRoom.Empty();
     PrewarmedSpawnPlansByRoomId.Empty();
     CurrentWaveNumber = 0;
@@ -2691,12 +2857,26 @@ void URaidCombatSubsystem::Deinitialize()
     bFoliageTraceCollisionSanitized = true;
     bBloodTraceSettingsPatched = false;
     bRuntimeAssetsPrimed = false;
+    bRuntimeAssetWarmupRequested = false;
     bEnemyPresetClassesPrimed = false;
+    bEnemyPresetWarmupRequested = false;
     bBandageHealSyncedFromLootDataTable = false;
     NextFoliageSanitizeRetryTimeSeconds = 0.0;
     NextBloodDecalCleanupTimeSeconds = 0.0;
     NextFallbackEnemySweepTimeSeconds = 0.0;
     NextDropSoulRepairTimeSeconds = 0.0;
+    NextPlayerGunfireNoiseReportTimeSeconds = 0.0;
+    RecentSpawnHeavyWorkDeferUntilSeconds = 0.0;
+    if (RuntimeWarmupHandle.IsValid())
+    {
+        RuntimeWarmupHandle->CancelHandle();
+        RuntimeWarmupHandle.Reset();
+    }
+    if (EnemyPresetWarmupHandle.IsValid())
+    {
+        EnemyPresetWarmupHandle->CancelHandle();
+        EnemyPresetWarmupHandle.Reset();
+    }
     DropSoulSpawnCountByRoom.Empty();
     PrewarmedSpawnPlansByRoomId.Empty();
     CurrentWaveNumber = 0;
@@ -2967,6 +3147,7 @@ void URaidCombatSubsystem::ConfigureDropSoulPolicy(float InSpawnChance, int32 In
 
 void URaidCombatSubsystem::StartCombatForRoom(ARaidRoomActor* Room)
 {
+    UWorld* World = GetWorld();
     if (!IsValid(Room) || Room->IsCleared())
     {
         return;
@@ -3001,6 +3182,12 @@ void URaidCombatSubsystem::StartCombatForRoom(ARaidRoomActor* Room)
         NextFoliageSanitizeRetryTimeSeconds = 0.0;
     }
     StartTraceCollisionEnforcer();
+
+    if (World && PostSpawnHeavyTaskCooldown > 0.0f)
+    {
+        const double DeferUntil = World->GetTimeSeconds() + (double)FMath::Max(0.0f, PostSpawnHeavyTaskCooldown);
+        RecentSpawnHeavyWorkDeferUntilSeconds = FMath::Max(RecentSpawnHeavyWorkDeferUntilSeconds, DeferUntil);
+    }
 
     RoomById.Add(Room->GetNodeId(), Room);
     Room->SetCombatStarted(true);
@@ -3071,10 +3258,11 @@ void URaidCombatSubsystem::EnforceTraceCollisionOnAllAIPawns()
     }
 
     const double NowSeconds = World->GetTimeSeconds();
-    const bool bNeedFoliageSanitize = (NowSeconds >= NextFoliageSanitizeRetryTimeSeconds);
-    const bool bNeedBloodCleanup = (NowSeconds >= NextBloodDecalCleanupTimeSeconds);
-    const bool bNeedDropSoulRepair = (NowSeconds >= NextDropSoulRepairTimeSeconds);
-    const bool bNeedFallbackSweep = (NowSeconds >= NextFallbackEnemySweepTimeSeconds);
+    const bool bInSpawnHeavyTaskCooldown = (NowSeconds < RecentSpawnHeavyWorkDeferUntilSeconds);
+    const bool bNeedFoliageSanitize = !bInSpawnHeavyTaskCooldown && (NowSeconds >= NextFoliageSanitizeRetryTimeSeconds);
+    const bool bNeedBloodCleanup = !bInSpawnHeavyTaskCooldown && (NowSeconds >= NextBloodDecalCleanupTimeSeconds);
+    const bool bNeedDropSoulRepair = !bInSpawnHeavyTaskCooldown && (NowSeconds >= NextDropSoulRepairTimeSeconds);
+    const bool bNeedFallbackSweep = !bInSpawnHeavyTaskCooldown && (NowSeconds >= NextFallbackEnemySweepTimeSeconds);
     const bool bNeedWaveTick = bEnableDynamicWaves && TotalDynamicWaves > 0;
     const bool bHasTrackedEnemies = (EnemyToRoomMap.Num() > 0);
     const bool bNeedsAliveReconcile = (AliveByRoomId.Num() > 0 || AliveWaveEnemyCount > 0);
@@ -3112,6 +3300,23 @@ void URaidCombatSubsystem::EnforceTraceCollisionOnAllAIPawns()
     PendingDeadFinalizePawns.Reserve(4);
 
     APawn* PrimaryPlayerPawn = GetPrimaryPlayerPawn();
+    const bool bPlayerGunfireDetected = IsValid(PrimaryPlayerPawn) && IsPlayerLikelyMakingGunfireNoise(PrimaryPlayerPawn);
+    if (bBridgePlayerGunfireToAISenseHearing &&
+        bPlayerGunfireDetected &&
+        NowSeconds >= NextPlayerGunfireNoiseReportTimeSeconds)
+    {
+        UAISense_Hearing::ReportNoiseEvent(
+            World,
+            PrimaryPlayerPawn->GetActorLocation(),
+            FMath::Max(0.05f, PlayerGunfireNoiseLoudness),
+            PrimaryPlayerPawn,
+            FMath::Max(500.0f, EnemyGunshotHearingDistance),
+            FName(TEXT("RaidGunfire")));
+
+        NextPlayerGunfireNoiseReportTimeSeconds =
+            NowSeconds + FMath::Max(0.05f, PlayerGunfireNoiseReportInterval);
+    }
+
     TickWaveSpawning(NowSeconds, PrimaryPlayerPawn);
 
     int32 FixedCount = 0;

@@ -2,9 +2,21 @@
 #include "AI/NavigationSystemBase.h"
 #include "NavigationSystem.h"
 #include "Engine/StaticMesh.h"
+#include "Engine/World.h"
+#include "Engine/EngineTypes.h"
 #include "Materials/MaterialInterface.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "EngineUtils.h"
+
+namespace
+{
+    constexpr float RoomTraversalWalkableSlopeAngleDeg = 62.0f;
+
+    bool ShouldForceTraversalWalkableSlopeForMeshType(const int32 MeshType)
+    {
+        return (MeshType == 2 || MeshType == 3 || MeshType == 8);
+    }
+}
 
 void ARaidRoomActor::MaybeEnableNaniteForMesh(UStaticMesh* Mesh)
 {
@@ -79,6 +91,16 @@ void ARaidRoomActor::ApplyISMCOptimization(UHierarchicalInstancedStaticMeshCompo
         ISMC->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
         ISMC->SetCollisionResponseToChannel(ECC_Camera, ECR_Block);
         ISMC->CanCharacterStepUpOn = ECB_Yes;
+        if (ShouldForceTraversalWalkableSlopeForMeshType(MeshType))
+        {
+            ISMC->SetWalkableSlopeOverride(
+                FWalkableSlopeOverride(WalkableSlope_Increase, RoomTraversalWalkableSlopeAngleDeg));
+        }
+        else
+        {
+            ISMC->SetWalkableSlopeOverride(
+                FWalkableSlopeOverride(WalkableSlope_Default, 0.0f));
+        }
     }
 
     if (bAutoOptimizeInstancedMeshes)
@@ -96,7 +118,7 @@ void ARaidRoomActor::ApplyISMCOptimization(UHierarchicalInstancedStaticMeshCompo
         }
     }
 
-    const bool bShouldCastShadow = (MeshType <= 2 || MeshType == 6 || MeshType == 8);
+    const bool bShouldCastShadow = (MeshType <= 3 || MeshType == 6 || MeshType == 8);
     // Keep nav relevance only for blocking obstacle meshes.
     // Wall/floor/deco ISMC nav updates are expensive and often generate empty-bounds warnings during procedural regeneration.
     const bool bShouldAffectNavigation = bEnableObstacleNavigationUpdates && (!bNoCollisionMeshType) && (MeshType == 2);
@@ -219,11 +241,15 @@ void ARaidRoomActor::FlushQueuedNavigationUpdates()
 
 void ARaidRoomActor::ClearAllMeshInstances()
 {
+    EditorLandscapeFlattenOpsApplied = 0;
+
     for (AActor* Spawned : SpawnedDynamicActors) { if (IsValid(Spawned)) Spawned->Destroy(); }
     SpawnedDynamicActors.Empty();
     for (AActor* DoorActor : SpawnedDoorActors) { if (IsValid(DoorActor)) DoorActor->Destroy(); }
     SpawnedDoorActors.Empty();
+    PendingBlueprintTerrainPlacements.Reset();
     SpawnedObstacleFootprints.Reset();
+    AppliedTerrainFlattenFootprints.Reset();
     PendingNavUpdateISMCs.Reset();
 
     if (UWorld* World = GetWorld())
@@ -309,6 +335,13 @@ FLinearColor ARaidRoomActor::ResolveSemanticTintForType(int32 MeshType) const
 UMaterialInterface* ARaidRoomActor::GetSemanticMaterialForType(int32 MeshType)
 {
     if (!bUseSemanticWhiteboxColors) return nullptr;
+    if (const UWorld* World = GetWorld())
+    {
+        if (World->IsGameWorld() && !bAllowSemanticWhiteboxColorsInGame)
+        {
+            return nullptr;
+        }
+    }
     if (TObjectPtr<UMaterialInterface>* Found = SemanticMaterialCache.Find(MeshType)) return Found->Get();
     UMaterialInterface* BaseMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
     if (!BaseMaterial) return nullptr;
@@ -323,6 +356,13 @@ UMaterialInterface* ARaidRoomActor::GetSemanticMaterialForType(int32 MeshType)
 UMaterialInterface* ARaidRoomActor::GetTraversalMaterial()
 {
     if (!bUseSemanticWhiteboxColors) return nullptr;
+    if (const UWorld* World = GetWorld())
+    {
+        if (World->IsGameWorld() && !bAllowSemanticWhiteboxColorsInGame)
+        {
+            return nullptr;
+        }
+    }
     if (TraversalMaterialCache) return TraversalMaterialCache;
     UMaterialInterface* BaseMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
     if (!BaseMaterial) return nullptr;

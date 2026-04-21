@@ -8,6 +8,7 @@
 class USkeletalMesh;
 class UAnimInstance;
 class APawn;
+struct FSoftObjectPath;
 
 UCLASS(BlueprintType)
 class T_PROTO_API URaidEnemyPresetRegistry : public UDataAsset
@@ -20,6 +21,12 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Raid|EnemyPreset")
 	void PreloadAllEnemyPresetClasses(bool bLogSummary = false) const;
+
+	UFUNCTION(BlueprintCallable, Category = "Raid|EnemyPreset")
+	void GatherPreloadAssetPaths(TArray<FSoftObjectPath>& OutPaths) const;
+
+	UFUNCTION(BlueprintCallable, Category = "Raid|EnemyPreset")
+	void PrimeLoadedEnemyPresetClassDefaults(bool bLogSummary = false) const;
 
 	/** PresetId로 enemy pawn class 1개를 랜덤 선택해서 반환 (SoftClassPtr LoadSynchronous) */
 	UFUNCTION(BlueprintCallable, Category = "Raid|EnemyPreset")

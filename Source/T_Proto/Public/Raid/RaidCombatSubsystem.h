@@ -15,6 +15,7 @@ class URaidEnemyPresetRegistry;
 class URaidRegionBannerWidget;
 class URaidWaveProfile;
 class UNavigationSystemV1;
+struct FStreamableHandle;
 struct FHitResult;
 struct FLevelNodeRow;
 
@@ -392,7 +393,13 @@ private:
     bool bRuntimeAssetsPrimed = false;
 
     UPROPERTY()
+    bool bRuntimeAssetWarmupRequested = false;
+
+    UPROPERTY()
     bool bEnemyPresetClassesPrimed = false;
+
+    UPROPERTY()
+    bool bEnemyPresetWarmupRequested = false;
 
     UPROPERTY()
     double NextFoliageSanitizeRetryTimeSeconds = 0.0;
@@ -417,6 +424,12 @@ private:
 
     UPROPERTY()
     bool bStartPendingClearOnExit = false;
+
+    UPROPERTY()
+    double RecentSpawnHeavyWorkDeferUntilSeconds = 0.0;
+
+    TSharedPtr<FStreamableHandle> RuntimeWarmupHandle;
+    TSharedPtr<FStreamableHandle> EnemyPresetWarmupHandle;
 
     FTimerHandle TraceCollisionEnforcerHandle;
 
@@ -460,10 +473,10 @@ private:
     float FoliageSanitizeMaxDistanceFromPlayer = 32000.0f;
 
     UPROPERTY(EditAnywhere, Category = "Raid|Combat", meta = (ClampMin = "8", ClampMax = "2048"))
-    int32 MaxTraceBlockerActorsScannedPerSweep = 256;
+    int32 MaxTraceBlockerActorsScannedPerSweep = 160;
 
     UPROPERTY(EditAnywhere, Category = "Raid|Combat", meta = (ClampMin = "1", ClampMax = "512"))
-    int32 MaxTraceBlockerComponentsPatchedPerSweep = 48;
+    int32 MaxTraceBlockerComponentsPatchedPerSweep = 32;
 
     UPROPERTY(EditAnywhere, Category = "Raid|Combat")
     bool bEnableCombatPerfLogs = false;
@@ -490,6 +503,12 @@ private:
     bool bEnableRuntimeAssetWarmup = true;
 
     UPROPERTY(EditAnywhere, Category = "Raid|Performance")
+    bool bEnableAsyncRuntimeAssetWarmup = true;
+
+    UPROPERTY(EditAnywhere, Category = "Raid|Performance")
+    bool bEnableAsyncEnemyPresetPreload = true;
+
+    UPROPERTY(EditAnywhere, Category = "Raid|Performance")
     bool bForceNiagaraPSOPrecache = true;
 
     UPROPERTY(EditAnywhere, Category = "Raid|Performance")
@@ -503,6 +522,9 @@ private:
 
     UPROPERTY(EditAnywhere, Category = "Raid|Performance", meta = (ClampMin = "0.0", ClampMax = "0.25"))
     float EnemyControllerSpawnDelayStep = 0.08f;
+
+    UPROPERTY(EditAnywhere, Category = "Raid|Performance", meta = (ClampMin = "0.0", ClampMax = "5.0"))
+    float PostSpawnHeavyTaskCooldown = 1.20f;
 
     UPROPERTY(EditAnywhere, Category = "Raid|Performance")
     TArray<FSoftObjectPath> AdditionalWarmupAssets;
@@ -697,7 +719,7 @@ private:
     float WaveStartBannerDuration = 4.0f;
 
     UPROPERTY(EditAnywhere, Category = "Raid|Combat|Search", meta = (ClampMin = "0.0", ClampMax = "120.0"))
-    float EnemySearchStartDelay = 10.0f;
+    float EnemySearchStartDelay = 1.5f;
 
     UPROPERTY(EditAnywhere, Category = "Raid|Combat|Search", meta = (ClampMin = "0.1", ClampMax = "10.0"))
     float EnemySearchPatrolInterval = 2.2f;
@@ -723,6 +745,21 @@ private:
     UPROPERTY(EditAnywhere, Category = "Raid|Combat|Search")
     bool bDisableCustomSearchForStateTreeControllers = true;
 
+    UPROPERTY(EditAnywhere, Category = "Raid|Combat|Search")
+    bool bEnableStateTreeReactiveSearchAssist = true;
+
+    UPROPERTY(EditAnywhere, Category = "Raid|Combat|Search", meta = (ClampMin = "0.1", ClampMax = "6.0", EditCondition = "bEnableStateTreeReactiveSearchAssist"))
+    float StateTreeReactiveSearchRepathInterval = 0.75f;
+
+    UPROPERTY(EditAnywhere, Category = "Raid|Combat|Search")
+    bool bBridgePlayerGunfireToAISenseHearing = true;
+
+    UPROPERTY(EditAnywhere, Category = "Raid|Combat|Search", meta = (ClampMin = "0.05", ClampMax = "3.0", EditCondition = "bBridgePlayerGunfireToAISenseHearing"))
+    float PlayerGunfireNoiseReportInterval = 0.45f;
+
+    UPROPERTY(EditAnywhere, Category = "Raid|Combat|Search", meta = (ClampMin = "0.05", ClampMax = "5.0", EditCondition = "bBridgePlayerGunfireToAISenseHearing"))
+    float PlayerGunfireNoiseLoudness = 1.0f;
+
     UPROPERTY(EditAnywhere, Category = "Raid|Combat|Zombie")
     bool bDisableZombieGrab = true;
 
@@ -741,6 +778,9 @@ private:
 
     UPROPERTY()
     double NextDropSoulRepairTimeSeconds = 0.0;
+
+    UPROPERTY()
+    double NextPlayerGunfireNoiseReportTimeSeconds = 0.0;
 
     UPROPERTY()
     TMap<int32, int32> DropSoulSpawnCountByRoom;

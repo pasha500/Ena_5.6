@@ -34,6 +34,8 @@ public:
 
 protected:
     virtual void BeginPlay() override;
+    virtual void OnConstruction(const FTransform& Transform) override;
+    virtual void BeginDestroy() override;
 
 public:
     // =========================================================================
@@ -397,6 +399,21 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Raid|Step 3. Actions")
     bool bAutoSpawnLayoutOnBeginPlay = false;
 
+    // Editor automation (Option 1):
+    // Before PIE starts, auto-build (SpawnRaidLayout) in editor world.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Raid|Step 3. Actions|Editor Automation")
+    bool bAutoBakeLayoutBeforePIE = true;
+
+    // If true, auto-bake runs only when no prebuilt room actors exist in editor world.
+    // If false, auto-bake always rebuilds before PIE.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Raid|Step 3. Actions|Editor Automation", meta = (EditCondition = "bAutoBakeLayoutBeforePIE"))
+    bool bAutoBakeOnlyIfNoPrebuiltRooms = false;
+
+    // Keep prebuilt room geometry as-is at runtime by default.
+    // Enable only if you explicitly want runtime regeneration of room meshes.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Raid|Step 3. Actions")
+    bool bRegeneratePrebuiltRoomLayoutOnBeginPlay = false;
+
     // --- STEP 3: 스폰 및 클리어 ---
     UFUNCTION(BlueprintCallable, Category = "Raid|Step 3. Actions")
     void OneClickCsvImportBuild(); // 🔥 원클릭 빌드 부활!
@@ -422,6 +439,13 @@ public:
     bool ApplyOpenWorldSpecFromCsvPath(const FString& CsvPath);
 
 private:
+#if WITH_EDITOR
+    void EnsurePreBeginPieAutoBakeHook();
+    void RemovePreBeginPieAutoBakeHook();
+    void HandlePreBeginPie(bool bIsSimulating);
+    FDelegateHandle PreBeginPieDelegateHandle;
+#endif
+
     void HandleBackgroundPresetApplied(const TCHAR* PresetName);
     static int32 ResolveMeshTypeFromComponentTags(const TArray<FName>& ComponentTags);
     int32 ApplyRoomOptimizationToRoom(ARaidRoomActor* Room, bool bReapplyExistingInstances);

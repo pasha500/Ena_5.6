@@ -19,6 +19,12 @@ void URaidCombatSubsystem::SpawnWaveNow(int32 WaveNumber, APawn* PlayerPawn)
         return;
     }
 
+    if (PostSpawnHeavyTaskCooldown > 0.0f)
+    {
+        const double DeferUntil = World->GetTimeSeconds() + (double)FMath::Max(0.0f, PostSpawnHeavyTaskCooldown);
+        RecentSpawnHeavyWorkDeferUntilSeconds = FMath::Max(RecentSpawnHeavyWorkDeferUntilSeconds, DeferUntil);
+    }
+
     const URaidChapterConfig* Config = nullptr;
     for (const TPair<int32, TObjectPtr<ARaidRoomActor>>& Pair : RoomById)
     {

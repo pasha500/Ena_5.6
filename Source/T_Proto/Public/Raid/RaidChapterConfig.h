@@ -74,6 +74,29 @@ struct T_PROTO_API FMeshVariation {
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Variation|Random", meta = (EditCondition = "bUseRandomLocationJitter"))
     float JitterRadius = 50.0f;
 
+    // Editor-time terrain adaptation:
+    // If enabled, spawn location's underlying landscape is flattened before final snap.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Variation|Terrain")
+    bool bFlattenLandscapeUnderSpawn = false;
+
+    // 0 or negative means "auto radius from mesh bounds".
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Variation|Terrain", meta = (EditCondition = "bFlattenLandscapeUnderSpawn", ClampMin = "0.0", ClampMax = "10000.0"))
+    float FlattenRadius = 0.0f;
+
+    // Outer smoothing falloff distance for natural transition.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Variation|Terrain", meta = (EditCondition = "bFlattenLandscapeUnderSpawn", ClampMin = "0.0", ClampMax = "6000.0"))
+    float FlattenSmoothFalloff = 250.0f;
+
+    // Relative target height adjustment from sampled support ground.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Variation|Terrain", meta = (EditCondition = "bFlattenLandscapeUnderSpawn", ClampMin = "-5000.0", ClampMax = "5000.0"))
+    float FlattenHeightOffset = 0.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Variation|Terrain", meta = (EditCondition = "bFlattenLandscapeUnderSpawn"))
+    bool bFlattenRaiseHeights = true;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Variation|Terrain", meta = (EditCondition = "bFlattenLandscapeUnderSpawn"))
+    bool bFlattenLowerHeights = true;
+
     FTransform GetRandomizedTransform(const FTransform& BaseTransform, const FRandomStream& Stream) const
     {
         FTransform FinalTrans = Offset * BaseTransform;

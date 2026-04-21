@@ -13,7 +13,9 @@
 #include "Engine/World.h"
 #include "Engine/OverlapResult.h"
 #include "Engine/StaticMeshActor.h"
+#include "Engine/EngineTypes.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/SplineComponent.h"
 #include "PhysicsEngine/BodySetup.h"
 #include "Particles/ParticleSystem.h"
 #include "Particles/ParticleSystemComponent.h"
@@ -31,6 +33,12 @@
 #include "Kismet/GameplayStatics.h"
 #include "GameFramework/Character.h"
 #include "UObject/UnrealType.h"
+#include "LandscapeProxy.h"
+#if WITH_EDITOR
+#include "LandscapeInfo.h"
+#include "LandscapeEdit.h"
+#include "LandscapeDataAccess.h"
+#endif
 
 namespace
 {
@@ -189,8 +197,22 @@ namespace
         const bool bEnvOutdoor =
             NodeRow.EnvType.Equals(TEXT("Jungle"), ESearchCase::IgnoreCase) ||
             NodeRow.EnvType.Equals(TEXT("Nature"), ESearchCase::IgnoreCase) ||
-            NodeRow.EnvType.Equals(TEXT("NatureVillage"), ESearchCase::IgnoreCase);
+            NodeRow.EnvType.Equals(TEXT("NatureVillage"), ESearchCase::IgnoreCase) ||
+            NodeRow.Theme.Equals(TEXT("Jungle"), ESearchCase::IgnoreCase) ||
+            NodeRow.Theme.Equals(TEXT("Nature"), ESearchCase::IgnoreCase) ||
+            NodeRow.Theme.Equals(TEXT("NatureVillage"), ESearchCase::IgnoreCase);
         return bForceOutdoor || (!bForceIndoor && bEnvOutdoor);
+    }
+
+    bool IsRuntimePrototypeEngineMesh(const UWorld* World, const UStaticMesh* Mesh)
+    {
+        if (!World || !World->IsGameWorld() || !IsValid(Mesh))
+        {
+            return false;
+        }
+
+        const FString MeshPath = Mesh->GetPathName();
+        return MeshPath.StartsWith(TEXT("/Engine/BasicShapes/"));
     }
 
     ERaidVariationOffsetChannel ResolveOffsetChannelForMeshType(int32 MeshType)
@@ -287,18 +309,516 @@ namespace
         return false;
     }
 
+    bool ContainsKeywordWithLetterBoundary(const FString& LowerSource, const TCHAR* Keyword)
+    {
+        if (LowerSource.IsEmpty() || !Keyword || !*Keyword)
+        {
+            return false;
+        }
+
+        const int32 KeywordLen = FCString::Strlen(Keyword);
+        int32 SearchStart = 0;
+        while (SearchStart < LowerSource.Len())
+        {
+            const int32 FoundIndex = LowerSource.Find(Keyword, ESearchCase::CaseSensitive, ESearchDir::FromStart, SearchStart);
+            if (FoundIndex == INDEX_NONE)
+            {
+                break;
+            }
+
+            const int32 EndIndex = FoundIndex + KeywordLen;
+            const bool bPrevIsLetter = (FoundIndex > 0) && FChar::IsAlpha(LowerSource[FoundIndex - 1]);
+            const bool bNextIsLetter = (EndIndex < LowerSource.Len()) && FChar::IsAlpha(LowerSource[EndIndex]);
+            if (!bPrevIsLetter && !bNextIsLetter)
+            {
+                return true;
+            }
+
+            SearchStart = FoundIndex + 1;
+        }
+
+        return false;
+    }
+
+#if WITH_EDITOR
+    float ResolveAutoFlattenRadiusFromMeshBounds(const UStaticMesh* Mesh, const FVector& WorldScaleAbs)
+    {
+        if (!IsValid(Mesh))
+        {
+            return 0.0f;
+        }
+
+        const FBox MeshBounds = Mesh->GetBoundingBox();
+        if (!MeshBounds.IsValid)
+        {
+            return 0.0f;
+        }
+
+        const FVector Extent = MeshBounds.GetExtent();
+        const float ExtentXY = FMath::Max(Extent.X * WorldScaleAbs.X, Extent.Y * WorldScaleAbs.Y);
+        if (ExtentXY <= KINDA_SMALL_NUMBER)
+        {
+            return 0.0f;
+        }
+
+        return FMath::Clamp(ExtentXY * 0.95f, 180.0f, 3200.0f);
+    }
+
+    uint32 HashMix32(uint32 Value)
+    {
+        Value ^= Value >> 16;
+        Value *= 0x7feb352du;
+        Value ^= Value >> 15;
+        Value *= 0x846ca68bu;
+        Value ^= Value >> 16;
+        return Value;
+    }
+
+    float HashCell01(int32 X, int32 Y, uint32 Seed)
+    {
+        uint32 Hash = Seed;
+        Hash ^= HashMix32(static_cast<uint32>(X));
+        Hash = HashMix32(Hash ^ (HashMix32(static_cast<uint32>(Y)) + 0x9E3779B9u));
+        return static_cast<float>(Hash & 0x00FFFFFFu) / 16777216.0f;
+    }
+
+    int32 ApplyEditorLandscapeFlattenBlob(
+        UWorld* World,
+        AActor* SplineOwner,
+        const FVector& Center,
+        float YawDeg,
+        float FlattenRadius,
+        float SideFalloff,
+        float TargetZ,
+        bool bRaiseHeights,
+        bool bLowerHeights,
+        float EdgeCliffRatio,
+        float EdgeErosionRatio,
+        float EdgePatchSize,
+        float EdgeErosionStrength,
+        float EdgeSmoothStrength)
+    {
+        static_cast<void>(SplineOwner);
+        static_cast<void>(YawDeg);
+
+        if (!World)
+        {
+            return 0;
+        }
+        // Landscape height data edits are editor-authoring behavior only.
+        // Running this during PIE/GameWorld can race with runtime physics/collision state (Chaos).
+        if (World->IsGameWorld())
+        {
+            return 0;
+        }
+
+        const float SafeRadius = FMath::Clamp(FlattenRadius, 10.0f, 10000.0f);
+        const float SafeFalloff = FMath::Clamp(SideFalloff, 0.0f, 6000.0f);
+        const float SafeCliffRatio = FMath::Clamp(EdgeCliffRatio, 0.0f, 0.8f);
+        const float SafeErosionRatio = FMath::Clamp(EdgeErosionRatio, 0.0f, 1.0f - SafeCliffRatio);
+        const float SafePatchSize = FMath::Clamp(EdgePatchSize, 120.0f, 6000.0f);
+        const float SafeErosionStrength = FMath::Clamp(EdgeErosionStrength, 0.0f, 1.0f);
+        const float SafeSmoothStrength = FMath::Clamp(EdgeSmoothStrength, 0.0f, 1.0f);
+        const float FlattenOuterRadius = SafeRadius + SafeFalloff;
+        // Keep the core plateau, but add an extra edge-only smoothing ring so the transition
+        // blends into surrounding terrain instead of ending in a cliff-like lip.
+        const float EdgeSmoothExtraRadius = FMath::Clamp(
+            FMath::Max(SafeFalloff * 0.8f, SafeRadius * 0.2f),
+            120.0f,
+            3000.0f);
+        const float EdgeSmoothInnerRadius = SafeRadius + (SafeFalloff * 0.5f);
+        const float EdgeSmoothOuterRadius = FlattenOuterRadius + EdgeSmoothExtraRadius;
+
+        if (SafeRadius <= KINDA_SMALL_NUMBER)
+        {
+            return 0;
+        }
+        if (!bRaiseHeights && !bLowerHeights)
+        {
+            return 0;
+        }
+
+        TSet<ULandscapeInfo*> ProcessedLandscapeInfos;
+        int32 AppliedLandscapeCount = 0;
+        const float AffectedRadius = EdgeSmoothOuterRadius + 256.0f;
+        const float AffectedRadiusSq = FMath::Square(AffectedRadius);
+        for (TActorIterator<ALandscapeProxy> It(World); It; ++It)
+        {
+            ALandscapeProxy* Landscape = *It;
+            if (!IsValid(Landscape))
+            {
+                continue;
+            }
+
+            const FBox LandscapeBounds = Landscape->GetComponentsBoundingBox(true);
+            if (!LandscapeBounds.IsValid)
+            {
+                continue;
+            }
+
+            const FVector Closest = LandscapeBounds.GetClosestPointTo(Center);
+            if (FVector::DistSquaredXY(Closest, Center) > AffectedRadiusSq)
+            {
+                continue;
+            }
+
+            ULandscapeInfo* LandscapeInfo = Landscape->GetLandscapeInfo();
+            if (!LandscapeInfo || ProcessedLandscapeInfos.Contains(LandscapeInfo))
+            {
+                continue;
+            }
+
+            int32 ExtentMinX = 0;
+            int32 ExtentMinY = 0;
+            int32 ExtentMaxX = 0;
+            int32 ExtentMaxY = 0;
+            if (!LandscapeInfo->GetLandscapeExtent(ExtentMinX, ExtentMinY, ExtentMaxX, ExtentMaxY))
+            {
+                continue;
+            }
+
+            const FTransform LandscapeToWorld = Landscape->LandscapeActorToWorld();
+            const FVector LandscapeScaleAbs = LandscapeToWorld.GetScale3D().GetAbs();
+            const float SafeScaleX = FMath::Max(LandscapeScaleAbs.X, KINDA_SMALL_NUMBER);
+            const float SafeScaleY = FMath::Max(LandscapeScaleAbs.Y, KINDA_SMALL_NUMBER);
+
+            const FVector WorldTarget(Center.X, Center.Y, TargetZ);
+            const FVector LocalTarget = LandscapeToWorld.InverseTransformPosition(WorldTarget);
+            const float LocalCenterX = LocalTarget.X;
+            const float LocalCenterY = LocalTarget.Y;
+            const float LocalTargetZ = LocalTarget.Z;
+
+            const float CoreRadiusLocalX = SafeRadius / SafeScaleX;
+            const float CoreRadiusLocalY = SafeRadius / SafeScaleY;
+            const float FalloffRadiusLocalX = SafeFalloff / SafeScaleX;
+            const float FalloffRadiusLocalY = SafeFalloff / SafeScaleY;
+            const float EdgeSmoothOuterRadiusLocalX = EdgeSmoothOuterRadius / SafeScaleX;
+            const float EdgeSmoothOuterRadiusLocalY = EdgeSmoothOuterRadius / SafeScaleY;
+
+            int32 X1 = FMath::FloorToInt(LocalCenterX - EdgeSmoothOuterRadiusLocalX);
+            int32 Y1 = FMath::FloorToInt(LocalCenterY - EdgeSmoothOuterRadiusLocalY);
+            int32 X2 = FMath::CeilToInt(LocalCenterX + EdgeSmoothOuterRadiusLocalX);
+            int32 Y2 = FMath::CeilToInt(LocalCenterY + EdgeSmoothOuterRadiusLocalY);
+            X1 = FMath::Clamp(X1, ExtentMinX, ExtentMaxX);
+            Y1 = FMath::Clamp(Y1, ExtentMinY, ExtentMaxY);
+            X2 = FMath::Clamp(X2, ExtentMinX, ExtentMaxX);
+            Y2 = FMath::Clamp(Y2, ExtentMinY, ExtentMaxY);
+            if (X1 > X2 || Y1 > Y2)
+            {
+                continue;
+            }
+
+            FLandscapeEditDataInterface LandscapeEdit(LandscapeInfo);
+            const int32 Width = X2 - X1 + 1;
+            const int32 Height = Y2 - Y1 + 1;
+            TArray<uint16> HeightData;
+            HeightData.SetNumUninitialized(Width * Height);
+            LandscapeEdit.GetHeightDataFast(X1, Y1, X2, Y2, HeightData.GetData(), 0);
+            TArray<uint16> OriginalHeightData = HeightData;
+
+            const uint16 TargetTexHeight = LandscapeDataAccess::GetTexHeight(LocalTargetZ);
+            bool bChanged = false;
+
+            for (int32 LocalY = Y1; LocalY <= Y2; ++LocalY)
+            {
+                for (int32 LocalX = X1; LocalX <= X2; ++LocalX)
+                {
+                    const float DeltaWorldX = (static_cast<float>(LocalX) - LocalCenterX) * SafeScaleX;
+                    const float DeltaWorldY = (static_cast<float>(LocalY) - LocalCenterY) * SafeScaleY;
+                    const float DistanceWorld = FMath::Sqrt(DeltaWorldX * DeltaWorldX + DeltaWorldY * DeltaWorldY);
+                    if (DistanceWorld > FlattenOuterRadius)
+                    {
+                        continue;
+                    }
+
+                    float BlendAlpha = 1.0f;
+                    if (DistanceWorld > SafeRadius && SafeFalloff > KINDA_SMALL_NUMBER)
+                    {
+                        BlendAlpha = 1.0f - (DistanceWorld - SafeRadius) / SafeFalloff;
+                    }
+                    BlendAlpha = FMath::Clamp(BlendAlpha, 0.0f, 1.0f);
+                    BlendAlpha = BlendAlpha * BlendAlpha * (3.0f - 2.0f * BlendAlpha); // smoothstep
+
+                    const int32 DataIndex = (LocalY - Y1) * Width + (LocalX - X1);
+                    const uint16 CurrentHeight = HeightData[DataIndex];
+                    const int32 CurrentI = static_cast<int32>(CurrentHeight);
+                    const int32 TargetI = static_cast<int32>(TargetTexHeight);
+                    int32 NewHeightI = CurrentI;
+
+                    if (bRaiseHeights && bLowerHeights)
+                    {
+                        NewHeightI = FMath::RoundToInt(FMath::Lerp(
+                            static_cast<float>(CurrentI),
+                            static_cast<float>(TargetI),
+                            BlendAlpha));
+                    }
+                    else if (bRaiseHeights)
+                    {
+                        if (TargetI > CurrentI)
+                        {
+                            const int32 Blended = FMath::RoundToInt(FMath::Lerp(
+                                static_cast<float>(CurrentI),
+                                static_cast<float>(TargetI),
+                                BlendAlpha));
+                            NewHeightI = FMath::Max(CurrentI, Blended);
+                        }
+                    }
+                    else if (bLowerHeights)
+                    {
+                        if (TargetI < CurrentI)
+                        {
+                            const int32 Blended = FMath::RoundToInt(FMath::Lerp(
+                                static_cast<float>(CurrentI),
+                                static_cast<float>(TargetI),
+                                BlendAlpha));
+                            NewHeightI = FMath::Min(CurrentI, Blended);
+                        }
+                    }
+
+                    NewHeightI = FMath::Clamp(NewHeightI, 0, static_cast<int32>(LandscapeDataAccess::MaxValue));
+                    const uint16 NewHeight = static_cast<uint16>(NewHeightI);
+                    if (NewHeight != CurrentHeight)
+                    {
+                        HeightData[DataIndex] = NewHeight;
+                        bChanged = true;
+                    }
+                }
+            }
+
+            const float EdgeSmoothWidth = FMath::Max(EdgeSmoothOuterRadius - EdgeSmoothInnerRadius, KINDA_SMALL_NUMBER);
+            if (Width >= 3 && Height >= 3 && EdgeSmoothWidth > KINDA_SMALL_NUMBER)
+            {
+                constexpr int32 SmoothingIterations = 2;
+                const float StrongSmoothBoost = 0.24f;
+                const int32 CenterCellX = FMath::FloorToInt(Center.X / SafePatchSize);
+                const int32 CenterCellY = FMath::FloorToInt(Center.Y / SafePatchSize);
+                const float AxisNoise = HashCell01(CenterCellX, CenterCellY, 0xB5297A4Du);
+                const float AxisAngleRad = AxisNoise * (2.0f * PI);
+                const FVector2D PrimaryAxis(FMath::Cos(AxisAngleRad), FMath::Sin(AxisAngleRad));
+
+                for (int32 Iteration = 0; Iteration < SmoothingIterations; ++Iteration)
+                {
+                    const TArray<uint16> PrevHeightData = HeightData;
+                    bool bIterationChanged = false;
+
+                    for (int32 LocalY = Y1 + 1; LocalY <= Y2 - 1; ++LocalY)
+                    {
+                        for (int32 LocalX = X1 + 1; LocalX <= X2 - 1; ++LocalX)
+                        {
+                            const float DeltaWorldX = (static_cast<float>(LocalX) - LocalCenterX) * SafeScaleX;
+                            const float DeltaWorldY = (static_cast<float>(LocalY) - LocalCenterY) * SafeScaleY;
+                            const float DistanceWorld = FMath::Sqrt(DeltaWorldX * DeltaWorldX + DeltaWorldY * DeltaWorldY);
+                            if (DistanceWorld < EdgeSmoothInnerRadius || DistanceWorld > EdgeSmoothOuterRadius)
+                            {
+                                continue;
+                            }
+
+                            const float BlendT = FMath::Clamp(
+                                (DistanceWorld - EdgeSmoothInnerRadius) / EdgeSmoothWidth,
+                                0.0f,
+                                1.0f);
+                            float SmoothAlpha = 1.0f - BlendT;
+                            SmoothAlpha = SmoothAlpha * SmoothAlpha * (3.0f - 2.0f * SmoothAlpha); // smoothstep
+                            if (SmoothAlpha <= KINDA_SMALL_NUMBER)
+                            {
+                                continue;
+                            }
+
+                            const float WorldX = Center.X + DeltaWorldX;
+                            const float WorldY = Center.Y + DeltaWorldY;
+                            const int32 PatchX = FMath::FloorToInt(WorldX / SafePatchSize);
+                            const int32 PatchY = FMath::FloorToInt(WorldY / SafePatchSize);
+                            const float PatchStyleNoise = HashCell01(PatchX, PatchY, 0x68E31DA4u);
+                            const float ErosionNoise = HashCell01(PatchX, PatchY, 0x1B56C4E9u);
+                            const float CliffThreshold = SafeCliffRatio;
+                            const float ErosionThreshold = SafeCliffRatio + SafeErosionRatio;
+
+                            if (PatchStyleNoise < CliffThreshold)
+                            {
+                                // Intentionally keep part of the edge abrupt for natural cliff-like variation.
+                                continue;
+                            }
+
+                            const int32 DataIndex = (LocalY - Y1) * Width + (LocalX - X1);
+                            const int32 CurrentI = static_cast<int32>(PrevHeightData[DataIndex]);
+                            const int32 OriginalI = static_cast<int32>(OriginalHeightData[DataIndex]);
+
+                            int32 NeighborhoodSum = 0;
+                            int32 NeighborhoodMin = TNumericLimits<int32>::Max();
+                            for (int32 OffsetY = -1; OffsetY <= 1; ++OffsetY)
+                            {
+                                for (int32 OffsetX = -1; OffsetX <= 1; ++OffsetX)
+                                {
+                                    const int32 SampleIndex =
+                                        (LocalY + OffsetY - Y1) * Width + (LocalX + OffsetX - X1);
+                                    const int32 SampleI = static_cast<int32>(PrevHeightData[SampleIndex]);
+                                    NeighborhoodSum += SampleI;
+                                    NeighborhoodMin = FMath::Min(NeighborhoodMin, SampleI);
+                                }
+                            }
+
+                            const int32 NeighborAvgI = FMath::RoundToInt(static_cast<float>(NeighborhoodSum) / 9.0f);
+                            const FVector2D RadialDir = FVector2D(DeltaWorldX, DeltaWorldY).GetSafeNormal();
+                            const float AxisAlignment = FMath::Abs(FVector2D::DotProduct(RadialDir, PrimaryAxis));
+                            const bool bStrongSmoothZone = AxisAlignment >= 0.72f;
+
+                            bool bUseErosion = PatchStyleNoise < ErosionThreshold;
+                            int32 BlendTargetI = 0;
+                            float StyleStrength = 0.0f;
+                            if (bUseErosion)
+                            {
+                                // Erosion-like blend: pull toward local min + average, then fuse with original terrain.
+                                const int32 ErosionBaseI = FMath::RoundToInt(FMath::Lerp(
+                                    static_cast<float>(NeighborAvgI),
+                                    static_cast<float>(NeighborhoodMin),
+                                    0.40f));
+                                BlendTargetI = FMath::RoundToInt(FMath::Lerp(
+                                    static_cast<float>(ErosionBaseI),
+                                    static_cast<float>(OriginalI),
+                                    0.18f));
+                                StyleStrength = SafeErosionStrength;
+                            }
+                            else
+                            {
+                                // Strong smooth zone: preserve continuity lines from flattened area to outer terrain.
+                                BlendTargetI = FMath::RoundToInt(FMath::Lerp(
+                                    static_cast<float>(NeighborAvgI),
+                                    static_cast<float>(OriginalI),
+                                    0.44f));
+                                StyleStrength = SafeSmoothStrength + (bStrongSmoothZone ? StrongSmoothBoost : 0.0f);
+                            }
+
+                            StyleStrength = FMath::Clamp(StyleStrength, 0.0f, 1.0f);
+
+                            int32 NewHeightI = FMath::RoundToInt(FMath::Lerp(
+                                static_cast<float>(CurrentI),
+                                static_cast<float>(BlendTargetI),
+                                StyleStrength * SmoothAlpha));
+
+                            if (bUseErosion)
+                            {
+                                const float ErosionJitter = (ErosionNoise - 0.5f) * 6.0f * SmoothAlpha;
+                                NewHeightI += FMath::RoundToInt(ErosionJitter);
+                            }
+
+                            if (!bRaiseHeights && NewHeightI > CurrentI)
+                            {
+                                NewHeightI = CurrentI;
+                            }
+                            if (!bLowerHeights && NewHeightI < CurrentI)
+                            {
+                                NewHeightI = CurrentI;
+                            }
+
+                            NewHeightI = FMath::Clamp(NewHeightI, 0, static_cast<int32>(LandscapeDataAccess::MaxValue));
+                            const uint16 NewHeight = static_cast<uint16>(NewHeightI);
+                            if (NewHeight != HeightData[DataIndex])
+                            {
+                                HeightData[DataIndex] = NewHeight;
+                                bIterationChanged = true;
+                                bChanged = true;
+                            }
+                        }
+                    }
+
+                    if (!bIterationChanged)
+                    {
+                        break;
+                    }
+                }
+            }
+
+            if (!bChanged)
+            {
+                continue;
+            }
+
+            Landscape->Modify();
+            LandscapeEdit.SetHeightData(
+                X1,
+                Y1,
+                X2,
+                Y2,
+                HeightData.GetData(),
+                0,
+                true);
+            ProcessedLandscapeInfos.Add(LandscapeInfo);
+            ++AppliedLandscapeCount;
+        }
+
+        // Heightmap visual update alone can leave stale collision in PIE if collision rebuild
+        // does not run before game world starts. Force collision sync for edited landscapes.
+        for (ULandscapeInfo* EditedLandscapeInfo : ProcessedLandscapeInfos)
+        {
+            if (!EditedLandscapeInfo)
+            {
+                continue;
+            }
+
+            EditedLandscapeInfo->RecreateCollisionComponents();
+        }
+
+        return AppliedLandscapeCount;
+    }
+#endif
+
     bool IsTreeLikeMeshName(const FString& InName)
     {
         const FString Lower = InName.ToLower();
+        auto IsExplicitWindExcludedAssetPath = [](const FString& LowerAssetPath) -> bool
+        {
+            static const TCHAR* ExcludedPathKeywords[] = {
+                TEXT("/game/sajeongjeoncomplex/cheonchujeon/map/bp_cheonchujeon"),
+                TEXT("/game/sajeongjeoncomplex/sajeongjeon/map/bp_sajeongjeon"),
+                TEXT("/game/templesofcambodia/environment/bigrock_01/sm_bigrock_01_01"),
+                TEXT("/game/templesofcambodia/environment/bigrock_01/sm_bigrock_01_02"),
+                TEXT("/game/templesofcambodia/environment/bigrock_01/sm_bigrock_01_03"),
+                TEXT("/game/templesofcambodia/environment/bigrock_02/sm_bigrock_02_01"),
+                TEXT("/game/templesofcambodia/environment/bigrock_03/sm_bigrock_03_01")
+            };
+
+            for (const TCHAR* Keyword : ExcludedPathKeywords)
+            {
+                if (LowerAssetPath.Contains(Keyword))
+                {
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        if (IsExplicitWindExcludedAssetPath(Lower))
+        {
+            return false;
+        }
+
         static const TCHAR* Keywords[] = {
-            TEXT("tree"), TEXT("sapling"), TEXT("pine"), TEXT("oak"), TEXT("beech"),
-            TEXT("birch"), TEXT("fir"), TEXT("spruce"), TEXT("palm"), TEXT("cypress"),
-            TEXT("willow"), TEXT("trunk")
+            TEXT("tree"),
+            TEXT("sapling"),
+            TEXT("pine"),
+            TEXT("oak"),
+            TEXT("beech"),
+            TEXT("birch"),
+            TEXT("fir"),
+            TEXT("spruce"),
+            TEXT("palm"),
+            TEXT("cypress"),
+            TEXT("willow"),
+            TEXT("trunk"),
+            TEXT("pinetree"),
+            TEXT("oaktree"),
+            TEXT("beechtree"),
+            TEXT("birchtree"),
+            TEXT("firtree"),
+            TEXT("sprucetree"),
+            TEXT("palmtree"),
+            TEXT("cypresstree"),
+            TEXT("willowtree")
         };
 
         for (const TCHAR* Keyword : Keywords)
         {
-            if (Lower.Contains(Keyword))
+            if (ContainsKeywordWithLetterBoundary(Lower, Keyword))
             {
                 return true;
             }
@@ -488,7 +1008,11 @@ namespace
 
         for (int32 EnumIdx = 0; EnumIdx < EnumDef->NumEnums(); ++EnumIdx)
         {
-            if (EnumDef->HasMetaData(TEXT("Hidden"), EnumIdx))
+            bool bIsHiddenEntry = false;
+#if WITH_EDITOR
+            bIsHiddenEntry = EnumDef->HasMetaData(TEXT("Hidden"), EnumIdx);
+#endif
+            if (bIsHiddenEntry)
             {
                 continue;
             }
@@ -1144,6 +1668,23 @@ namespace
         return OutFootprint.bIsValid;
     }
 
+    float ResolveCoverageRadiusFromFootprint(const FBox2D& Footprint, float CoverageScale)
+    {
+        if (!Footprint.bIsValid)
+        {
+            return 0.0f;
+        }
+
+        const FVector2D Half2D = (Footprint.Max - Footprint.Min) * 0.5f;
+        const float DiagonalRadius = Half2D.Size();
+        if (DiagonalRadius <= KINDA_SMALL_NUMBER)
+        {
+            return 0.0f;
+        }
+
+        return DiagonalRadius * FMath::Clamp(CoverageScale, 1.0f, 2.0f);
+    }
+
     bool HasSimpleCollisionGeometry(const UBodySetup* BodySetup)
     {
         if (!BodySetup)
@@ -1159,16 +1700,50 @@ namespace
             AggGeom.ConvexElems.Num() > 0;
     }
 
-    bool ShouldForceWalkableCollisionForMeshType(const int32 MeshType)
+    constexpr float RoomTraversalWalkableSlopeAngleDeg = 62.0f;
+
+    bool ShouldForceTraversalWalkableSlopeForMeshType(const int32 MeshType)
     {
-        // Limit aggressive collision fallback to core obstacle geometry only.
-        // Applying this to decoration/foliage made movement on top of meshes unstable.
-        return (MeshType == 2);
+        // Core traversal targets:
+        // 2 = obstacle, 3 = decoration prop (often large rocks/ruins), 8 = foliage-rock cluster.
+        return (MeshType == 2 || MeshType == 3 || MeshType == 8);
+    }
+
+    bool ShouldForceWalkableCollisionForMesh(const UStaticMesh* Mesh, const int32 MeshType)
+    {
+        if (!IsValid(Mesh))
+        {
+            return false;
+        }
+
+        // Always force reliable collision for gameplay obstacles.
+        if (MeshType == 2)
+        {
+            return true;
+        }
+
+        // Large deco/rock meshes are also used as traversal surfaces in rooms.
+        // Keep small props untouched to avoid unstable footing on tiny details.
+        if (MeshType == 3 || MeshType == 8)
+        {
+            const FBox Bounds = Mesh->GetBoundingBox();
+            if (!Bounds.IsValid)
+            {
+                return false;
+            }
+
+            const FVector Extent = Bounds.GetExtent();
+            const float DiameterXY = 2.0f * FMath::Max(Extent.X, Extent.Y);
+            const float Height = 2.0f * Extent.Z;
+            return (DiameterXY >= 140.0f || Height >= 110.0f);
+        }
+
+        return false;
     }
 
     void EnsureMeshWalkableCollisionForRoom(UStaticMesh* Mesh, const int32 MeshType)
     {
-        if (!IsValid(Mesh) || !ShouldForceWalkableCollisionForMeshType(MeshType))
+        if (!IsValid(Mesh) || !ShouldForceWalkableCollisionForMesh(Mesh, MeshType))
         {
             return;
         }
@@ -1203,7 +1778,14 @@ namespace
             return true;
         }
 
-        if (IsWaterHit(Hit) || IsInsideWaterPhysicsVolume(World, Hit.ImpactPoint, 120.0f))
+        // WaterBodyOcean/Lake physics volumes can encompass nearby shoreline terrain.
+        // Reject explicit water hits, but do not reject valid landscape support solely
+        // because the point is inside a broad water physics volume.
+        if (IsWaterHit(Hit))
+        {
+            return true;
+        }
+        if (IsInsideWaterPhysicsVolume(World, Hit.ImpactPoint, 120.0f) && !IsLandscapeLikeHit(Hit))
         {
             return true;
         }
@@ -1379,6 +1961,29 @@ namespace
         return false;
     }
 
+    float ComputeFootprintArea2D(const FBox2D& Footprint)
+    {
+        if (!Footprint.bIsValid)
+        {
+            return 0.0f;
+        }
+
+        const FVector2D Size = Footprint.GetSize();
+        return FMath::Max(0.0f, Size.X) * FMath::Max(0.0f, Size.Y);
+    }
+
+    float ComputeFootprintGap2D(const FBox2D& A, const FBox2D& B)
+    {
+        if (!A.bIsValid || !B.bIsValid)
+        {
+            return TNumericLimits<float>::Max();
+        }
+
+        const float GapX = FMath::Max(0.0f, FMath::Max(A.Min.X - B.Max.X, B.Min.X - A.Max.X));
+        const float GapY = FMath::Max(0.0f, FMath::Max(A.Min.Y - B.Max.Y, B.Min.Y - A.Max.Y));
+        return FMath::Sqrt((GapX * GapX) + (GapY * GapY));
+    }
+
     bool TryResolveRoomSingleGroundHitAtPoint(
         UWorld* World,
         const FVector& XYLocation,
@@ -1425,8 +2030,9 @@ namespace
         const bool bHasPhaseLikeKeyword =
             LowerParamName.Contains(TEXT("phase")) ||
             LowerParamName.Contains(TEXT("timeoffset")) ||
+            LowerParamName.Contains(TEXT("windoffset")) ||
+            LowerParamName.Contains(TEXT("perinstance")) ||
             LowerParamName.Contains(TEXT("random")) ||
-            LowerParamName.Contains(TEXT("offset")) ||
             LowerParamName.Contains(TEXT("variation"));
         if (!bHasPhaseLikeKeyword)
         {
@@ -1480,7 +2086,7 @@ namespace
         {
             return Stream.FRandRange(-PI, PI);
         }
-        if (LowerParamName.Contains(TEXT("timeoffset")) || LowerParamName.Contains(TEXT("offset")))
+        if (LowerParamName.Contains(TEXT("timeoffset")) || LowerParamName.Contains(TEXT("windoffset")))
         {
             return Stream.FRandRange(-1.0f, 1.0f);
         }
@@ -1818,8 +2424,10 @@ void ARaidRoomActor::SetNodeData(int32 InNodeId, const FLevelNodeRow& InNodeRow,
         ChapterConfigRef->ResolveThemeKitForNode(NodeRow, CachedResolvedThemeKey, CachedResolvedThemeKit);
     }
 
+    AppliedTerrainFlattenFootprints.Reset();
+    PendingBlueprintTerrainPlacements.Reset();
     ApplyGridSizeFromRoomSizeToken(NodeRow.RoomSize, GridSize);
-    bNodeDataInitialized = true; bLootAlreadySpawned = false; bEntryBannerShown = false; bPendingBannerRetry = false; bWasPlayerInsideBannerZone = false; NextBannerAttemptTimeSeconds = 0.0; NextLootOutlineUpdateTimeSeconds = 0.0; CachedProximityAutoStartDistanceUU = -1.0f;
+    bNodeDataInitialized = true; bLootAlreadySpawned = false; bEntryBannerShown = false; bPendingBannerRetry = false; bWasPlayerInsideBannerZone = false; EditorLandscapeFlattenOpsApplied = 0; NextBannerAttemptTimeSeconds = 0.0; NextLootOutlineUpdateTimeSeconds = 0.0; CachedProximityAutoStartDistanceUU = -1.0f;
     CachedLootProximityFxTemplate = nullptr;
     CachedLootProximityFxTemplatePath.Reset();
     bLootProximityFxTemplateResolveAttempted = false;
@@ -2393,7 +3001,7 @@ AActor* ARaidRoomActor::SpawnProceduralDoorBlocker(const FModularMeshKit& ThemeK
 
     if (bHitGround)
     {
-        if (IsWaterHit(GroundHit) || IsInsideWaterPhysicsVolume(World, GroundHit.ImpactPoint, 80.0f))
+        if (IsWaterHit(GroundHit) || (IsInsideWaterPhysicsVolume(World, GroundHit.ImpactPoint, 80.0f) && !IsLandscapeLikeHit(GroundHit)))
         {
             return nullptr;
         }
@@ -2502,19 +3110,49 @@ AActor* ARaidRoomActor::AddMeshInstance(const FMeshVariation& Variation, const F
     const bool bShouldTryGroundSnap = bTerrainConformType;
     const bool bShouldAlignToSlope = bOutdoorStyle && (MeshType == 6 || MeshType == 7 || MeshType == 8);
     const bool bVariationBlueprint = !Variation.BlueprintPrefab.IsNull();
-    const float VariationDeltaLocalZ = FinalTransform.GetLocation().Z - BaseTransform.GetLocation().Z;
+    const float ResolvedVariationDeltaLocalZ = FinalTransform.GetLocation().Z - BaseTransform.GetLocation().Z;
+    const float AuthoredVariationOffsetLocalZ = Variation.Offset.GetLocation().Z;
+    const float VariationDeltaLocalZ =
+        !FMath::IsNearlyZero(AuthoredVariationOffsetLocalZ, KINDA_SMALL_NUMBER)
+        ? AuthoredVariationOffsetLocalZ
+        : ResolvedVariationDeltaLocalZ;
+#if !UE_BUILD_SHIPPING
+    if (MeshType == 2 && FMath::Abs(AuthoredVariationOffsetLocalZ) >= 1.0f)
+    {
+        static int32 GObstacleOffsetDebugLogCount = 0;
+        if (GObstacleOffsetDebugLogCount < 24)
+        {
+            ++GObstacleOffsetDebugLogCount;
+            const FString AssetPath = !Variation.Mesh.IsNull()
+                ? Variation.Mesh.ToString()
+                : Variation.BlueprintPrefab.ToString();
+            UE_LOG(
+                LogTemp,
+                Warning,
+                TEXT("[RaidRoom][OffsetDebug] MeshType=%d Asset=%s AuthorOffsetZ=%.2f ResolvedDeltaZ=%.2f AppliedDeltaZ=%.2f"),
+                MeshType,
+                *AssetPath,
+                AuthoredVariationOffsetLocalZ,
+                ResolvedVariationDeltaLocalZ,
+                VariationDeltaLocalZ);
+        }
+    }
+#endif
     bool bHasGroundHitForSnap = false;
     FHitResult CachedGroundHit;
+    bool bGroundHitOnLandscape = false;
+#if WITH_EDITOR
+    bool bDeferBlueprintFlattenToPostSpawn = false;
+#endif
+    bool bBlueprintFlattenAppliedInSpawnPass = false;
     float ObstacleMinSpacingForFootprint = 0.0f;
     FBox2D CandidateObstacleFootprint(EForceInit::ForceInit);
     bool bHasCandidateObstacleFootprint = false;
 
     if (UWorld* World = GetWorld())
     {
-        if (bOutdoorStyle && IsInsideWaterPhysicsVolume(World, WorldTransform.GetLocation(), 120.0f))
-        {
-            return nullptr;
-        }
+        // Do not early-reject by physics volume only.
+        // Ground-hit filtering below rejects real water surfaces while allowing shoreline terrain.
 
         if (bShouldTryGroundSnap)
         {
@@ -2582,8 +3220,31 @@ AActor* ARaidRoomActor::AddMeshInstance(const FMeshVariation& Variation, const F
                 return nullptr;
             }
 
-            const bool bSelectedLandscape = IsLandscapeLikeHit(CenterGroundHit);
-            if (!bOutdoorStyle && !bSelectedLandscape)
+            bool bSelectedLandscape = IsLandscapeLikeHit(CenterGroundHit);
+            if (!bSelectedLandscape && bVariationBlueprint)
+            {
+                // Blueprint prefabs are often large and can line-trace against preplaced geometry first.
+                // Retry once while ignoring the first blocking actor/component to recover landscape support.
+                FCollisionQueryParams RetryLandscapeQueryParams(QueryParams);
+                if (const AActor* FirstHitActor = CenterGroundHit.GetActor())
+                {
+                    RetryLandscapeQueryParams.AddIgnoredActor(FirstHitActor);
+                }
+                if (UPrimitiveComponent* FirstHitComp = CenterGroundHit.GetComponent())
+                {
+                    RetryLandscapeQueryParams.AddIgnoredComponent(FirstHitComp);
+                }
+
+                FHitResult RetryLandscapeHit;
+                if (TryResolveRoomSingleGroundHitAtPoint(World, QueryLocation, true, RetryLandscapeQueryParams, RetryLandscapeHit) &&
+                    IsLandscapeLikeHit(RetryLandscapeHit))
+                {
+                    CenterGroundHit = RetryLandscapeHit;
+                    bSelectedLandscape = true;
+                }
+            }
+            bGroundHitOnLandscape = bSelectedLandscape;
+            if (!bOutdoorStyle && !bSelectedLandscape && !bVariationBlueprint)
             {
                 // Indoor-style room metadata일 때는 임의의 static mesh를 지면으로 오인하지 않도록 스킵.
                 // 단, 실제 Landscape를 찾은 경우에는 메타데이터와 무관하게 스냅한다.
@@ -2593,37 +3254,248 @@ AActor* ARaidRoomActor::AddMeshInstance(const FMeshVariation& Variation, const F
                 TArray<FVector2D> GroundSupportOffsets;
                 BuildGroundSupportOffsets(GroundSupportSampleCount, GroundSupportRadius, GroundSupportOffsets);
 
+                auto CollectSupportData =
+                    [&](FHitResult& InOutCenterHit, TArray<float>& OutSupportHeights, FVector& OutSupportNormalAccum, int32& OutSupportNormalCount, float& OutSupportGroundZ, float& OutSupportHeightRange) -> void
+                    {
+                        OutSupportHeights.Reset();
+                        OutSupportHeights.Reserve(GroundSupportOffsets.Num());
+                        OutSupportHeights.Add(InOutCenterHit.ImpactPoint.Z);
+
+                        OutSupportNormalAccum = InOutCenterHit.ImpactNormal;
+                        OutSupportNormalCount = InOutCenterHit.ImpactNormal.IsNearlyZero() ? 0 : 1;
+
+                        float LocalMinHeight = InOutCenterHit.ImpactPoint.Z;
+                        float LocalMaxHeight = InOutCenterHit.ImpactPoint.Z;
+
+                        for (int32 OffsetIndex = 1; OffsetIndex < GroundSupportOffsets.Num(); ++OffsetIndex)
+                        {
+                            const FVector2D& Offset = GroundSupportOffsets[OffsetIndex];
+                            const FVector SampleLocation = QueryLocation + FVector(Offset.X, Offset.Y, 0.0f);
+                            FHitResult SupportHit;
+                            if (!TryResolveRoomSingleGroundHitAtPoint(World, SampleLocation, true, QueryParams, SupportHit))
+                            {
+                                continue;
+                            }
+
+                            const float HeightZ = SupportHit.ImpactPoint.Z;
+                            OutSupportHeights.Add(HeightZ);
+                            LocalMinHeight = FMath::Min(LocalMinHeight, HeightZ);
+                            LocalMaxHeight = FMath::Max(LocalMaxHeight, HeightZ);
+                            if (!SupportHit.ImpactNormal.IsNearlyZero())
+                            {
+                                OutSupportNormalAccum += SupportHit.ImpactNormal;
+                                ++OutSupportNormalCount;
+                            }
+                        }
+
+                        OutSupportGroundZ = InOutCenterHit.ImpactPoint.Z;
+                        if (OutSupportHeights.Num() > 1)
+                        {
+                            OutSupportHeights.Sort();
+                            OutSupportGroundZ = OutSupportHeights[OutSupportHeights.Num() / 2];
+                        }
+                        OutSupportHeightRange = LocalMaxHeight - LocalMinHeight;
+                    };
+
                 TArray<float> SupportHeights;
-                SupportHeights.Reserve(GroundSupportOffsets.Num());
-                SupportHeights.Add(CenterGroundHit.ImpactPoint.Z);
-
-                FVector SupportNormalAccum = CenterGroundHit.ImpactNormal;
-                int32 SupportNormalCount = CenterGroundHit.ImpactNormal.IsNearlyZero() ? 0 : 1;
-
-                for (int32 OffsetIndex = 1; OffsetIndex < GroundSupportOffsets.Num(); ++OffsetIndex)
-                {
-                    const FVector2D& Offset = GroundSupportOffsets[OffsetIndex];
-                    const FVector SampleLocation = QueryLocation + FVector(Offset.X, Offset.Y, 0.0f);
-                    FHitResult SupportHit;
-                    if (!TryResolveRoomSingleGroundHitAtPoint(World, SampleLocation, true, QueryParams, SupportHit))
-                    {
-                        continue;
-                    }
-
-                    SupportHeights.Add(SupportHit.ImpactPoint.Z);
-                    if (!SupportHit.ImpactNormal.IsNearlyZero())
-                    {
-                        SupportNormalAccum += SupportHit.ImpactNormal;
-                        ++SupportNormalCount;
-                    }
-                }
-
+                FVector SupportNormalAccum = FVector::UpVector;
+                int32 SupportNormalCount = 0;
                 float SupportGroundZ = CenterGroundHit.ImpactPoint.Z;
-                if (SupportHeights.Num() > 1)
+                float SupportHeightRange = 0.0f;
+                CollectSupportData(
+                    CenterGroundHit,
+                    SupportHeights,
+                    SupportNormalAccum,
+                    SupportNormalCount,
+                    SupportGroundZ,
+                    SupportHeightRange);
+
+#if WITH_EDITOR
+                if (bEnableEditorLandscapeFlattenForMarkedVariations &&
+                    !World->IsGameWorld() &&
+                    Variation.bFlattenLandscapeUnderSpawn &&
+                    bSelectedLandscape &&
+                    (EditorLandscapeFlattenMaxOpsPerRoom <= 0 || EditorLandscapeFlattenOpsApplied < EditorLandscapeFlattenMaxOpsPerRoom))
                 {
-                    SupportHeights.Sort();
-                    SupportGroundZ = SupportHeights[SupportHeights.Num() / 2];
+                    if (bVariationBlueprint && Variation.FlattenRadius <= KINDA_SMALL_NUMBER)
+                    {
+                        bDeferBlueprintFlattenToPostSpawn = true;
+                        if (bLogEditorLandscapeFlatten)
+                        {
+                            UE_LOG(
+                                LogTemp,
+                                Warning,
+                                TEXT("[RaidRoom][TerrainFlatten][Defer] Node=%d MeshType=%d Reason=BlueprintAutoRadius"),
+                                NodeId,
+                                MeshType);
+                        }
+                    }
+                    else
+                    {
+                    const float CenterNormalZ = FMath::Clamp(CenterGroundHit.ImpactNormal.GetSafeNormal().Z, -1.0f, 1.0f);
+                    const float CenterSlopeDeg = FMath::RadiansToDegrees(FMath::Acos(CenterNormalZ));
+                    float FlattenRadius = Variation.FlattenRadius;
+                    if (FlattenRadius <= KINDA_SMALL_NUMBER)
+                    {
+                        FlattenRadius = ResolveAutoFlattenRadiusFromMeshBounds(
+                            PreloadedVariationMesh,
+                            WorldTransform.GetScale3D().GetAbs());
+                    }
+                    if (PreloadedVariationMesh)
+                    {
+                        const FVector ScaleAbs = WorldTransform.GetScale3D().GetAbs();
+                        const FVector MeshExtent = PreloadedVariationMesh->GetBoundingBox().GetExtent();
+                        const FVector2D MeshHalf2D(MeshExtent.X * ScaleAbs.X, MeshExtent.Y * ScaleAbs.Y);
+                        const float MeshCoverageRadius = MeshHalf2D.Size() * EditorLandscapeFlattenFootprintCoverageScale;
+                        FlattenRadius = FMath::Max(FlattenRadius, MeshCoverageRadius);
+                    }
+                    FlattenRadius += FMath::Max(0.0f, EditorLandscapeFlattenExtraMargin);
+                    FlattenRadius = FMath::Clamp(FlattenRadius, 120.0f, 10000.0f);
+                    const float MinFalloffRatio = FMath::Clamp(EditorLandscapeFlattenMinFalloffRatio, 0.0f, 1.0f);
+                    float FlattenFalloff = FMath::Clamp(Variation.FlattenSmoothFalloff, 0.0f, 6000.0f);
+                    FlattenFalloff = FMath::Max(FlattenFalloff, FlattenRadius * MinFalloffRatio);
+                    FlattenFalloff = FMath::Clamp(FlattenFalloff, 0.0f, 6000.0f);
+                    const float TargetFlattenZ = SupportGroundZ + Variation.FlattenHeightOffset;
+                    const float FlattenTotalRadius = FlattenRadius + FlattenFalloff;
+                    FBox2D CandidateFlattenFootprint(
+                        FVector2D(CenterGroundHit.ImpactPoint.X - FlattenTotalRadius, CenterGroundHit.ImpactPoint.Y - FlattenTotalRadius),
+                        FVector2D(CenterGroundHit.ImpactPoint.X + FlattenTotalRadius, CenterGroundHit.ImpactPoint.Y + FlattenTotalRadius));
+                    const bool bHasCandidateFlattenFootprint = CandidateFlattenFootprint.bIsValid;
+                    const float FlattenOverlapPadding = FMath::Clamp(EditorLandscapeFlattenOverlapPadding, 0.0f, 1200.0f);
+                    const bool bFlattenOverlapBlocked =
+                        bAvoidOverlappingEditorLandscapeFlatten &&
+                        bHasCandidateFlattenFootprint &&
+                        IsFootprintOverlappingAny(
+                            AppliedTerrainFlattenFootprints,
+                            CandidateFlattenFootprint,
+                            FlattenOverlapPadding);
+
+                    if (bFlattenOverlapBlocked)
+                    {
+                        if (bLogEditorLandscapeFlatten)
+                        {
+                            UE_LOG(
+                                LogTemp,
+                                Warning,
+                                TEXT("[RaidRoom][TerrainFlatten][Skip] Node=%d MeshType=%d Reason=OverlapConflict Radius=%.1f Falloff=%.1f Existing=%d Padding=%.1f"),
+                                NodeId,
+                                MeshType,
+                                FlattenRadius,
+                                FlattenFalloff,
+                                AppliedTerrainFlattenFootprints.Num(),
+                                FlattenOverlapPadding);
+                        }
+                    }
+                    else
+                    {
+                        const int32 AppliedLandscapeCount = ApplyEditorLandscapeFlattenBlob(
+                            World,
+                            this,
+                            FVector(CenterGroundHit.ImpactPoint.X, CenterGroundHit.ImpactPoint.Y, TargetFlattenZ),
+                            WorldTransform.GetRotation().Rotator().Yaw,
+                            FlattenRadius,
+                            FlattenFalloff,
+                            TargetFlattenZ,
+                            Variation.bFlattenRaiseHeights,
+                            Variation.bFlattenLowerHeights,
+                            EditorLandscapeFlattenEdgeCliffRatio,
+                            EditorLandscapeFlattenEdgeErosionRatio,
+                            EditorLandscapeFlattenEdgePatchSize,
+                            EditorLandscapeFlattenEdgeErosionStrength,
+                            EditorLandscapeFlattenEdgeSmoothStrength);
+
+                        if (AppliedLandscapeCount > 0)
+                        {
+                            ++EditorLandscapeFlattenOpsApplied;
+                            if (bHasCandidateFlattenFootprint)
+                            {
+                                AppliedTerrainFlattenFootprints.Add(CandidateFlattenFootprint);
+                            }
+
+                            if (bLogEditorLandscapeFlatten)
+                            {
+                                UE_LOG(
+                                    LogTemp,
+                                    Warning,
+                                    TEXT("[RaidRoom][TerrainFlatten] Node=%d MeshType=%d Radius=%.1f Falloff=%.1f HeightOffset=%.1f Slope=%.1f HeightRange=%.1f Landscapes=%d"),
+                                    NodeId,
+                                    MeshType,
+                                    FlattenRadius,
+                                    FlattenFalloff,
+                                    Variation.FlattenHeightOffset,
+                                    CenterSlopeDeg,
+                                    SupportHeightRange,
+                                    AppliedLandscapeCount);
+                            }
+
+                            FHitResult RefreshedCenterGroundHit;
+                            if (TryResolveRoomSingleGroundHitAtPoint(World, QueryLocation, true, QueryParams, RefreshedCenterGroundHit))
+                            {
+                                CenterGroundHit = RefreshedCenterGroundHit;
+                                CollectSupportData(
+                                    CenterGroundHit,
+                                    SupportHeights,
+                                    SupportNormalAccum,
+                                    SupportNormalCount,
+                                    SupportGroundZ,
+                                    SupportHeightRange);
+                            }
+                        }
+                        else if (bLogEditorLandscapeFlatten)
+                        {
+                            UE_LOG(
+                                LogTemp,
+                                Warning,
+                                TEXT("[RaidRoom][TerrainFlatten][Skip] Node=%d MeshType=%d Reason=NoLandscapeApplied Radius=%.1f Falloff=%.1f"),
+                                NodeId,
+                            MeshType,
+                            FlattenRadius,
+                            FlattenFalloff);
+                    }
+                    }
                 }
+                }
+                else if (bEnableEditorLandscapeFlattenForMarkedVariations &&
+                         Variation.bFlattenLandscapeUnderSpawn &&
+                         bLogEditorLandscapeFlatten)
+                {
+                    if (!bSelectedLandscape)
+                    {
+                        UE_LOG(
+                            LogTemp,
+                            Warning,
+                            TEXT("[RaidRoom][TerrainFlatten][Skip] Node=%d MeshType=%d Reason=NotLandscapeHit HitActor=%s"),
+                            NodeId,
+                            MeshType,
+                            *GetNameSafe(CenterGroundHit.GetActor()));
+                    }
+                    else if (EditorLandscapeFlattenMaxOpsPerRoom > 0 &&
+                             EditorLandscapeFlattenOpsApplied >= EditorLandscapeFlattenMaxOpsPerRoom)
+                    {
+                        UE_LOG(
+                            LogTemp,
+                            Warning,
+                            TEXT("[RaidRoom][TerrainFlatten][Skip] Node=%d MeshType=%d Reason=BudgetReached Applied=%d Max=%d"),
+                            NodeId,
+                            MeshType,
+                            EditorLandscapeFlattenOpsApplied,
+                            EditorLandscapeFlattenMaxOpsPerRoom);
+                    }
+                }
+                else if (bEnableEditorLandscapeFlattenForMarkedVariations &&
+                         bLogEditorLandscapeFlatten &&
+                         bVariationBlueprint &&
+                         !Variation.bFlattenLandscapeUnderSpawn)
+                {
+                    UE_LOG(
+                        LogTemp,
+                        Warning,
+                        TEXT("[RaidRoom][TerrainFlatten][Skip] Node=%d MeshType=%d Reason=VariationFlattenDisabled Asset=%s"),
+                        NodeId,
+                        MeshType,
+                        *Variation.BlueprintPrefab.ToString());
+                }
+#endif
 
                 bHasGroundHitForSnap = true;
                 CachedGroundHit = CenterGroundHit;
@@ -2651,11 +3523,17 @@ AActor* ARaidRoomActor::AddMeshInstance(const FMeshVariation& Variation, const F
                 }
 
                 const bool bFoliageLikeMeshType = (MeshType == 6 || MeshType == 7 || MeshType == 8);
-                const float BaseLocalZContribution = bFoliageLikeMeshType ? BaseTransform.GetLocation().Z : 0.0f;
+                // 1) Ground snap should only decide "attach to ground".
+                // 2) Authored variation/index Z offset should be applied AFTER snap.
+                // This separation prevents authored offsets from being canceled by snap baseline logic.
+                const float BaseLocalZContribution = bFoliageLikeMeshType
+                    ? FMath::Clamp(BaseTransform.GetLocation().Z, -4000.0f, 4000.0f)
+                    : 0.0f;
+                const float ClampedVariationDeltaLocalZ = FMath::Clamp(VariationDeltaLocalZ, -20000.0f, 20000.0f);
                 const float EffectiveVariationDeltaLocalZ = bFoliageLikeMeshType
-                    ? FMath::Min(0.0f, VariationDeltaLocalZ)
-                    : VariationDeltaLocalZ;
-                const float TargetBottomZ = SupportGroundZ + BaseLocalZContribution + EffectiveVariationDeltaLocalZ + 2.0f;
+                    ? FMath::Min(0.0f, ClampedVariationDeltaLocalZ)
+                    : ClampedVariationDeltaLocalZ;
+                const float TargetBottomZ = SupportGroundZ + BaseLocalZContribution + 2.0f;
                 bool bAdjustedWithBounds = false;
                 if (PreloadedVariationMesh)
                 {
@@ -2697,6 +3575,13 @@ AActor* ARaidRoomActor::AddMeshInstance(const FMeshVariation& Variation, const F
                 {
                     SnappedLocation = WorldTransform.GetLocation();
                     SnappedLocation.Z = TargetBottomZ;
+                    WorldTransform.SetLocation(SnappedLocation);
+                }
+
+                if (!FMath::IsNearlyZero(EffectiveVariationDeltaLocalZ, 0.1f))
+                {
+                    SnappedLocation = WorldTransform.GetLocation();
+                    SnappedLocation.Z += EffectiveVariationDeltaLocalZ;
                     WorldTransform.SetLocation(SnappedLocation);
                 }
             }
@@ -2863,14 +3748,38 @@ AActor* ARaidRoomActor::AddMeshInstance(const FMeshVariation& Variation, const F
             Params.ObjectFlags |= ResolveRoomSpawnObjectFlags(GetWorld());
             if (AActor* SpawnedActor = GetWorld()->SpawnActor<AActor>(LoadedClass, WorldTransform, Params))
             {
+                if (const UWorld* World = GetWorld(); World && World->IsGameWorld())
+                {
+                    bool bContainsPrototypeEngineMesh = false;
+                    TInlineComponentArray<UStaticMeshComponent*> StaticMeshComponents(SpawnedActor);
+                    for (UStaticMeshComponent* StaticMeshComponent : StaticMeshComponents)
+                    {
+                        if (IsRuntimePrototypeEngineMesh(World, StaticMeshComponent ? StaticMeshComponent->GetStaticMesh() : nullptr))
+                        {
+                            bContainsPrototypeEngineMesh = true;
+                            break;
+                        }
+                    }
+
+                    if (bContainsPrototypeEngineMesh)
+                    {
+                        SpawnedActor->Destroy();
+                        return nullptr;
+                    }
+                }
+
                 if (bShouldTryGroundSnap && bHasGroundHitForSnap)
                 {
                     const bool bFoliageLikeMeshType = (MeshType == 6 || MeshType == 7 || MeshType == 8);
-                    const float BaseLocalZContribution = bFoliageLikeMeshType ? BaseTransform.GetLocation().Z : 0.0f;
+                    const float BaseLocalZContribution = bFoliageLikeMeshType
+                        ? FMath::Clamp(BaseTransform.GetLocation().Z, -4000.0f, 4000.0f)
+                        : 0.0f;
+                    const float ClampedVariationDeltaLocalZ = FMath::Clamp(VariationDeltaLocalZ, -20000.0f, 20000.0f);
                     const float EffectiveVariationDeltaLocalZ = bFoliageLikeMeshType
-                        ? FMath::Min(0.0f, VariationDeltaLocalZ)
-                        : VariationDeltaLocalZ;
-                    const float TargetBottomZ = CachedGroundHit.ImpactPoint.Z + BaseLocalZContribution + EffectiveVariationDeltaLocalZ + 2.0f;
+                        ? FMath::Min(0.0f, ClampedVariationDeltaLocalZ)
+                        : ClampedVariationDeltaLocalZ;
+                    float SupportGroundZForActor = CachedGroundHit.ImpactPoint.Z;
+                    float TargetBottomZ = SupportGroundZForActor + BaseLocalZContribution + 2.0f;
 
                     float CurrentSupportMinZ = TNumericLimits<float>::Max();
                     if (TryResolveActorLowestSupportZ(SpawnedActor, CurrentSupportMinZ))
@@ -2891,11 +3800,287 @@ AActor* ARaidRoomActor::AddMeshInstance(const FMeshVariation& Variation, const F
                         FallbackLoc.Z = TargetBottomZ;
                         SpawnedActor->SetActorLocation(FallbackLoc, false, nullptr, ETeleportType::TeleportPhysics);
                     }
+
+                    auto ReSnapBlueprintByFootprintMedian =
+                        [&](float& InOutSupportGroundZ) -> void
+                        {
+                            UWorld* LocalWorld = GetWorld();
+                            if (!LocalWorld || !IsValid(SpawnedActor))
+                            {
+                                return;
+                            }
+
+                            FBox2D ActorFootprint(EForceInit::ForceInit);
+                            if (!TryBuildFootprintFromActor(SpawnedActor, ActorFootprint) || !ActorFootprint.bIsValid)
+                            {
+                                return;
+                            }
+
+                            const FVector2D Center2D = (ActorFootprint.Min + ActorFootprint.Max) * 0.5f;
+                            const FVector2D Half2D = (ActorFootprint.Max - ActorFootprint.Min) * 0.5f;
+                            const FVector2D ClampedHalf(
+                                FMath::Max(20.0f, Half2D.X),
+                                FMath::Max(20.0f, Half2D.Y));
+
+                            TArray<FVector2D> SamplePoints;
+                            SamplePoints.Reserve(9);
+                            SamplePoints.Add(Center2D);
+                            SamplePoints.Add(Center2D + FVector2D(ClampedHalf.X, 0.0f));
+                            SamplePoints.Add(Center2D + FVector2D(-ClampedHalf.X, 0.0f));
+                            SamplePoints.Add(Center2D + FVector2D(0.0f, ClampedHalf.Y));
+                            SamplePoints.Add(Center2D + FVector2D(0.0f, -ClampedHalf.Y));
+                            SamplePoints.Add(Center2D + FVector2D(ClampedHalf.X, ClampedHalf.Y));
+                            SamplePoints.Add(Center2D + FVector2D(-ClampedHalf.X, ClampedHalf.Y));
+                            SamplePoints.Add(Center2D + FVector2D(ClampedHalf.X, -ClampedHalf.Y));
+                            SamplePoints.Add(Center2D + FVector2D(-ClampedHalf.X, -ClampedHalf.Y));
+
+                            FCollisionQueryParams BlueprintGroundQueryParams(SCENE_QUERY_STAT(RaidRoomBlueprintFootprintGroundSnap), false);
+                            BlueprintGroundQueryParams.bTraceComplex = false;
+                            BlueprintGroundQueryParams.AddIgnoredActor(this);
+                            BlueprintGroundQueryParams.AddIgnoredActor(SpawnedActor);
+                            for (const TObjectPtr<AActor>& ExistingSpawnedActor : SpawnedDynamicActors)
+                            {
+                                if (IsValid(ExistingSpawnedActor))
+                                {
+                                    BlueprintGroundQueryParams.AddIgnoredActor(ExistingSpawnedActor);
+                                }
+                            }
+                            for (const TObjectPtr<AActor>& DoorActor : SpawnedDoorActors)
+                            {
+                                if (IsValid(DoorActor))
+                                {
+                                    BlueprintGroundQueryParams.AddIgnoredActor(DoorActor);
+                                }
+                            }
+
+                            TArray<float> SupportHeights;
+                            SupportHeights.Reserve(SamplePoints.Num());
+                            for (const FVector2D& SamplePoint : SamplePoints)
+                            {
+                                const FVector QueryPoint(SamplePoint.X, SamplePoint.Y, SpawnedActor->GetActorLocation().Z);
+                                FHitResult GroundHit;
+                                if (TryResolveRoomSingleGroundHitAtPoint(LocalWorld, QueryPoint, true, BlueprintGroundQueryParams, GroundHit))
+                                {
+                                    SupportHeights.Add(GroundHit.ImpactPoint.Z);
+                                }
+                            }
+
+                            if (SupportHeights.Num() <= 0)
+                            {
+                                return;
+                            }
+
+                            SupportHeights.Sort();
+                            InOutSupportGroundZ = SupportHeights[SupportHeights.Num() / 2];
+                            TargetBottomZ = InOutSupportGroundZ + BaseLocalZContribution + 2.0f;
+
+                            float RecalcSupportMinZ = TNumericLimits<float>::Max();
+                            if (TryResolveActorLowestSupportZ(SpawnedActor, RecalcSupportMinZ))
+                            {
+                                const float DeltaToGround = TargetBottomZ - RecalcSupportMinZ;
+                                if (!FMath::IsNearlyZero(DeltaToGround, 0.1f))
+                                {
+                                    SpawnedActor->AddActorWorldOffset(
+                                        FVector(0.0f, 0.0f, DeltaToGround),
+                                        false,
+                                        nullptr,
+                                        ETeleportType::TeleportPhysics);
+                                }
+                            }
+                        };
+
+#if WITH_EDITOR
+                    UWorld* FlattenWorld = GetWorld();
+                    if (FlattenWorld &&
+                        !FlattenWorld->IsGameWorld() &&
+                        bEnableEditorLandscapeFlattenForMarkedVariations &&
+                        Variation.bFlattenLandscapeUnderSpawn &&
+                        bGroundHitOnLandscape &&
+                        (EditorLandscapeFlattenMaxOpsPerRoom <= 0 || EditorLandscapeFlattenOpsApplied < EditorLandscapeFlattenMaxOpsPerRoom))
+                    {
+                        const bool bRunPostSpawnFlatten = bDeferBlueprintFlattenToPostSpawn || Variation.FlattenRadius > KINDA_SMALL_NUMBER;
+                        if (bRunPostSpawnFlatten)
+                        {
+                            FBox2D ActorFootprint(EForceInit::ForceInit);
+                            const bool bHasActorFootprint = TryBuildFootprintFromActor(SpawnedActor, ActorFootprint);
+
+                            const FVector ActorLoc = SpawnedActor->GetActorLocation();
+                            const FVector2D FlattenCenter2D = bHasActorFootprint
+                                ? (ActorFootprint.Min + ActorFootprint.Max) * 0.5f
+                                : FVector2D(ActorLoc.X, ActorLoc.Y);
+
+                            float FlattenRadius = Variation.FlattenRadius;
+                            if (FlattenRadius <= KINDA_SMALL_NUMBER)
+                            {
+                                if (bHasActorFootprint)
+                                {
+                                    const FVector2D Extent2D = (ActorFootprint.Max - ActorFootprint.Min) * 0.5f;
+                                    FlattenRadius = FMath::Max(Extent2D.X, Extent2D.Y);
+                                }
+                                else
+                                {
+                                    FlattenRadius = 240.0f;
+                                }
+                            }
+                            if (bHasActorFootprint)
+                            {
+                                const float CoverageRadius = ResolveCoverageRadiusFromFootprint(
+                                    ActorFootprint,
+                                    EditorLandscapeFlattenFootprintCoverageScale);
+                                FlattenRadius = FMath::Max(FlattenRadius, CoverageRadius);
+                            }
+                            FlattenRadius += FMath::Max(0.0f, EditorLandscapeFlattenExtraMargin);
+                            FlattenRadius = FMath::Clamp(FlattenRadius, 180.0f, 10000.0f);
+
+                            const float MinFalloffRatio = FMath::Clamp(EditorLandscapeFlattenMinFalloffRatio, 0.0f, 1.0f);
+                            float FlattenFalloff = FMath::Clamp(Variation.FlattenSmoothFalloff, 0.0f, 6000.0f);
+                            FlattenFalloff = FMath::Max(FlattenFalloff, FlattenRadius * MinFalloffRatio);
+                            FlattenFalloff = FMath::Clamp(FlattenFalloff, 0.0f, 6000.0f);
+                            const float TargetFlattenZ = SupportGroundZForActor + Variation.FlattenHeightOffset;
+                            const float FlattenTotalRadius = FlattenRadius + FlattenFalloff;
+                            const FBox2D CandidateFlattenFootprint(
+                                FVector2D(FlattenCenter2D.X - FlattenTotalRadius, FlattenCenter2D.Y - FlattenTotalRadius),
+                                FVector2D(FlattenCenter2D.X + FlattenTotalRadius, FlattenCenter2D.Y + FlattenTotalRadius));
+                            const bool bHasCandidateFlattenFootprint = CandidateFlattenFootprint.bIsValid;
+                            const float FlattenOverlapPadding = FMath::Clamp(EditorLandscapeFlattenOverlapPadding, 0.0f, 1200.0f);
+                            const bool bFlattenOverlapBlocked =
+                                bAvoidOverlappingEditorLandscapeFlatten &&
+                                bHasCandidateFlattenFootprint &&
+                                IsFootprintOverlappingAny(
+                                    AppliedTerrainFlattenFootprints,
+                                    CandidateFlattenFootprint,
+                                    FlattenOverlapPadding);
+
+                            if (bFlattenOverlapBlocked)
+                            {
+                                if (bLogEditorLandscapeFlatten)
+                                {
+                                    UE_LOG(
+                                        LogTemp,
+                                        Warning,
+                                        TEXT("[RaidRoom][TerrainFlatten][Skip] Node=%d MeshType=%d Reason=PostSpawnOverlapConflict Radius=%.1f Falloff=%.1f Existing=%d Padding=%.1f"),
+                                        NodeId,
+                                        MeshType,
+                                        FlattenRadius,
+                                        FlattenFalloff,
+                                        AppliedTerrainFlattenFootprints.Num(),
+                                        FlattenOverlapPadding);
+                                }
+                            }
+                            else
+                            {
+                                const int32 AppliedLandscapeCount = ApplyEditorLandscapeFlattenBlob(
+                                    FlattenWorld,
+                                    this,
+                                    FVector(FlattenCenter2D.X, FlattenCenter2D.Y, TargetFlattenZ),
+                                    SpawnedActor->GetActorRotation().Yaw,
+                                    FlattenRadius,
+                                    FlattenFalloff,
+                                    TargetFlattenZ,
+                                    Variation.bFlattenRaiseHeights,
+                                    Variation.bFlattenLowerHeights,
+                                    EditorLandscapeFlattenEdgeCliffRatio,
+                                    EditorLandscapeFlattenEdgeErosionRatio,
+                                    EditorLandscapeFlattenEdgePatchSize,
+                                    EditorLandscapeFlattenEdgeErosionStrength,
+                                    EditorLandscapeFlattenEdgeSmoothStrength);
+
+                                if (AppliedLandscapeCount > 0)
+                                {
+                                    ++EditorLandscapeFlattenOpsApplied;
+                                    bBlueprintFlattenAppliedInSpawnPass = true;
+                                    if (bHasCandidateFlattenFootprint)
+                                    {
+                                        AppliedTerrainFlattenFootprints.Add(CandidateFlattenFootprint);
+                                    }
+
+                                    FCollisionQueryParams PostFlattenQueryParams(SCENE_QUERY_STAT(RaidRoomBlueprintPostFlattenGroundSnap), false);
+                                    PostFlattenQueryParams.bTraceComplex = false;
+                                    PostFlattenQueryParams.AddIgnoredActor(this);
+                                    PostFlattenQueryParams.AddIgnoredActor(SpawnedActor);
+                                    for (const TObjectPtr<AActor>& ExistingSpawnedActor : SpawnedDynamicActors)
+                                    {
+                                        if (IsValid(ExistingSpawnedActor))
+                                        {
+                                            PostFlattenQueryParams.AddIgnoredActor(ExistingSpawnedActor);
+                                        }
+                                    }
+                                    for (const TObjectPtr<AActor>& DoorActor : SpawnedDoorActors)
+                                    {
+                                        if (IsValid(DoorActor))
+                                        {
+                                            PostFlattenQueryParams.AddIgnoredActor(DoorActor);
+                                        }
+                                    }
+
+                                    FHitResult PostFlattenGroundHit;
+                                    const FVector PostFlattenQueryLocation(FlattenCenter2D.X, FlattenCenter2D.Y, SpawnedActor->GetActorLocation().Z);
+                                    if (TryResolveRoomSingleGroundHitAtPoint(FlattenWorld, PostFlattenQueryLocation, true, PostFlattenQueryParams, PostFlattenGroundHit))
+                                    {
+                                        SupportGroundZForActor = PostFlattenGroundHit.ImpactPoint.Z;
+                                        CachedGroundHit = PostFlattenGroundHit;
+                                        TargetBottomZ = SupportGroundZForActor + BaseLocalZContribution + 2.0f;
+
+                                        float RecalcSupportMinZ = TNumericLimits<float>::Max();
+                                        if (TryResolveActorLowestSupportZ(SpawnedActor, RecalcSupportMinZ))
+                                        {
+                                            const float DeltaToGround = TargetBottomZ - RecalcSupportMinZ;
+                                            if (!FMath::IsNearlyZero(DeltaToGround, 0.1f))
+                                            {
+                                                SpawnedActor->AddActorWorldOffset(
+                                                    FVector(0.0f, 0.0f, DeltaToGround),
+                                                    false,
+                                                    nullptr,
+                                                    ETeleportType::TeleportPhysics);
+                                            }
+                                        }
+                                    }
+
+                                    if (bLogEditorLandscapeFlatten)
+                                    {
+                                        UE_LOG(
+                                            LogTemp,
+                                            Warning,
+                                            TEXT("[RaidRoom][TerrainFlatten] Node=%d MeshType=%d Reason=BlueprintPostSpawn Radius=%.1f Falloff=%.1f HeightOffset=%.1f Landscapes=%d"),
+                                            NodeId,
+                                            MeshType,
+                                            FlattenRadius,
+                                            FlattenFalloff,
+                                            Variation.FlattenHeightOffset,
+                                            AppliedLandscapeCount);
+                                    }
+                                }
+                                else if (bLogEditorLandscapeFlatten)
+                                {
+                                    UE_LOG(
+                                        LogTemp,
+                                        Warning,
+                                        TEXT("[RaidRoom][TerrainFlatten][Skip] Node=%d MeshType=%d Reason=BlueprintPostSpawnNoLandscapeApplied Radius=%.1f Falloff=%.1f"),
+                                        NodeId,
+                                        MeshType,
+                                        FlattenRadius,
+                                        FlattenFalloff);
+                                }
+                            }
+                        }
+                    }
+#endif
+
+                    ReSnapBlueprintByFootprintMedian(SupportGroundZForActor);
+
+                    if (!FMath::IsNearlyZero(EffectiveVariationDeltaLocalZ, 0.1f))
+                    {
+                        SpawnedActor->AddActorWorldOffset(
+                            FVector(0.0f, 0.0f, EffectiveVariationDeltaLocalZ),
+                            false,
+                            nullptr,
+                            ETeleportType::TeleportPhysics);
+                    }
                 }
 
                 const bool bForceBlockCollision = (MeshType == 0 || MeshType == 1 || MeshType == 2 || MeshType == 3 || MeshType == 6 || MeshType == 8);
                 const bool bForceNoCollision = (MeshType == 7);
-                const bool bShouldCastShadow = (MeshType <= 2 || MeshType == 6 || MeshType == 8);
+                const bool bShouldCastShadow = (MeshType <= 3 || MeshType == 6 || MeshType == 8);
                 const bool bShouldAffectNavigation = bForceBlockCollision && (MeshType == 2);
 
                 TInlineComponentArray<UPrimitiveComponent*> PrimitiveComps;
@@ -2925,6 +4110,16 @@ AActor* ARaidRoomActor::AddMeshInstance(const FMeshVariation& Variation, const F
                         PrimitiveComp->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
                         PrimitiveComp->SetCollisionResponseToChannel(ECC_Camera, ECR_Block);
                         PrimitiveComp->CanCharacterStepUpOn = ECB_Yes;
+                        if (ShouldForceTraversalWalkableSlopeForMeshType(MeshType))
+                        {
+                            PrimitiveComp->SetWalkableSlopeOverride(
+                                FWalkableSlopeOverride(WalkableSlope_Increase, RoomTraversalWalkableSlopeAngleDeg));
+                        }
+                        else
+                        {
+                            PrimitiveComp->SetWalkableSlopeOverride(
+                                FWalkableSlopeOverride(WalkableSlope_Default, 0.0f));
+                        }
                     }
                     else if (bForceNoCollision)
                     {
@@ -2987,6 +4182,32 @@ AActor* ARaidRoomActor::AddMeshInstance(const FMeshVariation& Variation, const F
                         SpawnedObstacleFootprints.Add(FinalFootprint);
                     }
                 }
+                if (bShouldTryGroundSnap && bHasGroundHitForSnap)
+                {
+                    const bool bFoliageLikeMeshType = (MeshType == 6 || MeshType == 7 || MeshType == 8);
+                    const float BaseLocalZContribution = bFoliageLikeMeshType
+                        ? FMath::Clamp(BaseTransform.GetLocation().Z, -4000.0f, 4000.0f)
+                        : 0.0f;
+                    const float ClampedVariationDeltaLocalZ = FMath::Clamp(VariationDeltaLocalZ, -20000.0f, 20000.0f);
+                    const float EffectiveVariationDeltaLocalZ = bFoliageLikeMeshType
+                        ? FMath::Min(0.0f, ClampedVariationDeltaLocalZ)
+                        : ClampedVariationDeltaLocalZ;
+
+                    FPendingBlueprintTerrainPlacement PendingPlacement;
+                    PendingPlacement.Actor = SpawnedActor;
+                    PendingPlacement.MeshType = MeshType;
+                    PendingPlacement.BaseLocalZContribution = BaseLocalZContribution;
+                    PendingPlacement.EffectiveVariationDeltaLocalZ = EffectiveVariationDeltaLocalZ;
+                    PendingPlacement.bFlattenLandscapeUnderSpawn = Variation.bFlattenLandscapeUnderSpawn;
+                    PendingPlacement.bFlattenAppliedInSpawnPass = bBlueprintFlattenAppliedInSpawnPass;
+                    PendingPlacement.bGroundHitOnLandscape = bGroundHitOnLandscape;
+                    PendingPlacement.FlattenRadius = Variation.FlattenRadius;
+                    PendingPlacement.FlattenSmoothFalloff = Variation.FlattenSmoothFalloff;
+                    PendingPlacement.FlattenHeightOffset = Variation.FlattenHeightOffset;
+                    PendingPlacement.bFlattenRaiseHeights = Variation.bFlattenRaiseHeights;
+                    PendingPlacement.bFlattenLowerHeights = Variation.bFlattenLowerHeights;
+                    PendingBlueprintTerrainPlacements.Add(PendingPlacement);
+                }
 
                 SpawnedDynamicActors.Add(SpawnedActor);
                 return SpawnedActor;
@@ -3014,7 +4235,32 @@ AActor* ARaidRoomActor::AddMeshInstance(const FMeshVariation& Variation, const F
     }
 
     UStaticMesh* LoadedMesh = PreloadedVariationMesh ? PreloadedVariationMesh : Variation.Mesh.LoadSynchronous();
-    if (!LoadedMesh) return nullptr;
+    if (!LoadedMesh)
+    {
+        if (const UWorld* World = GetWorld(); World && World->IsGameWorld())
+        {
+            static TSet<FString> LoggedMissingMeshAssets;
+            const FString MissingPath = Variation.Mesh.ToString();
+            if (!MissingPath.IsEmpty() && !LoggedMissingMeshAssets.Contains(MissingPath))
+            {
+                LoggedMissingMeshAssets.Add(MissingPath);
+                UE_LOG(
+                    LogTemp,
+                    Warning,
+                    TEXT("[RaidRoom] Static mesh load failed. RoomNode=%d MeshType=%d Theme=%s Env=%s Asset=%s"),
+                    NodeId,
+                    MeshType,
+                    *NodeRow.Theme,
+                    *NodeRow.EnvType,
+                    *MissingPath);
+            }
+        }
+        return nullptr;
+    }
+    if (IsRuntimePrototypeEngineMesh(GetWorld(), LoadedMesh))
+    {
+        return nullptr;
+    }
     MaybeEnableNaniteForMesh(LoadedMesh);
     EnsureMeshWalkableCollisionForRoom(LoadedMesh, MeshType);
 
@@ -3055,6 +4301,16 @@ AActor* ARaidRoomActor::AddMeshInstance(const FMeshVariation& Variation, const F
                 MeshComp->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
                 MeshComp->SetCollisionResponseToChannel(ECC_Camera, ECR_Block);
                 MeshComp->CanCharacterStepUpOn = ECB_Yes;
+                if (ShouldForceTraversalWalkableSlopeForMeshType(MeshType))
+                {
+                    MeshComp->SetWalkableSlopeOverride(
+                        FWalkableSlopeOverride(WalkableSlope_Increase, RoomTraversalWalkableSlopeAngleDeg));
+                }
+                else
+                {
+                    MeshComp->SetWalkableSlopeOverride(
+                        FWalkableSlopeOverride(WalkableSlope_Default, 0.0f));
+                }
                 MeshComp->SetMobility(EComponentMobility::Static);
                 MeshComp->SetCastShadow(true);
                 MeshComp->bCastDynamicShadow = true;
@@ -3184,6 +4440,731 @@ AActor* ARaidRoomActor::AddMeshInstance(const FMeshVariation& Variation, const F
     return nullptr;
 }
 
+void ARaidRoomActor::RunBlueprintTerrainStabilizationPass()
+{
+    if (PendingBlueprintTerrainPlacements.Num() <= 0)
+    {
+        return;
+    }
+
+    UWorld* World = GetWorld();
+    if (!World)
+    {
+        PendingBlueprintTerrainPlacements.Reset();
+        return;
+    }
+
+    int32 ProcessedCount = 0;
+    int32 CorrectedCount = 0;
+    int32 FlattenAppliedCount = 0;
+    int32 FlattenOverlapSkipCount = 0;
+    int32 NoGroundCount = 0;
+    int32 NoLandscapeCount = 0;
+    TSet<int32> PreFlattenAppliedPendingIndices;
+
+    auto ResolveMedianSupportGround =
+        [this, World](
+            AActor* Actor,
+            const FBox2D& ActorFootprint,
+            float& OutGroundZ,
+            bool& bOutLandscapeCenter) -> bool
+        {
+            if (!IsValid(Actor))
+            {
+                return false;
+            }
+
+            const FVector ActorLocation = Actor->GetActorLocation();
+            const FVector2D Center2D = ActorFootprint.bIsValid
+                ? (ActorFootprint.Min + ActorFootprint.Max) * 0.5f
+                : FVector2D(ActorLocation.X, ActorLocation.Y);
+            const FVector2D Half2D = ActorFootprint.bIsValid
+                ? (ActorFootprint.Max - ActorFootprint.Min) * 0.5f
+                : FVector2D(0.0f, 0.0f);
+
+            TArray<FVector2D> SamplePoints;
+            SamplePoints.Reserve(9);
+            SamplePoints.Add(Center2D);
+            if (ActorFootprint.bIsValid)
+            {
+                const FVector2D ClampedHalf(
+                    FMath::Max(20.0f, Half2D.X),
+                    FMath::Max(20.0f, Half2D.Y));
+                SamplePoints.Add(Center2D + FVector2D(ClampedHalf.X, 0.0f));
+                SamplePoints.Add(Center2D + FVector2D(-ClampedHalf.X, 0.0f));
+                SamplePoints.Add(Center2D + FVector2D(0.0f, ClampedHalf.Y));
+                SamplePoints.Add(Center2D + FVector2D(0.0f, -ClampedHalf.Y));
+                SamplePoints.Add(Center2D + FVector2D(ClampedHalf.X, ClampedHalf.Y));
+                SamplePoints.Add(Center2D + FVector2D(-ClampedHalf.X, ClampedHalf.Y));
+                SamplePoints.Add(Center2D + FVector2D(ClampedHalf.X, -ClampedHalf.Y));
+                SamplePoints.Add(Center2D + FVector2D(-ClampedHalf.X, -ClampedHalf.Y));
+            }
+
+            FCollisionQueryParams GroundQueryParams(SCENE_QUERY_STAT(RaidRoomBlueprintTerrainStabilizeGround), false);
+            GroundQueryParams.bTraceComplex = false;
+            GroundQueryParams.AddIgnoredActor(this);
+            GroundQueryParams.AddIgnoredActor(Actor);
+            for (const TObjectPtr<AActor>& ExistingActor : SpawnedDynamicActors)
+            {
+                if (IsValid(ExistingActor))
+                {
+                    GroundQueryParams.AddIgnoredActor(ExistingActor);
+                }
+            }
+            for (const TObjectPtr<AActor>& DoorActor : SpawnedDoorActors)
+            {
+                if (IsValid(DoorActor))
+                {
+                    GroundQueryParams.AddIgnoredActor(DoorActor);
+                }
+            }
+
+            TArray<float> Heights;
+            Heights.Reserve(SamplePoints.Num());
+            bOutLandscapeCenter = false;
+            for (int32 SampleIndex = 0; SampleIndex < SamplePoints.Num(); ++SampleIndex)
+            {
+                const FVector2D& SamplePoint = SamplePoints[SampleIndex];
+                const FVector QueryPoint(SamplePoint.X, SamplePoint.Y, ActorLocation.Z);
+                FHitResult GroundHit;
+                if (TryResolveRoomSingleGroundHitAtPoint(World, QueryPoint, true, GroundQueryParams, GroundHit))
+                {
+                    Heights.Add(GroundHit.ImpactPoint.Z);
+                    if (SampleIndex == 0)
+                    {
+                        bOutLandscapeCenter = IsLandscapeLikeHit(GroundHit);
+                    }
+                }
+            }
+
+            if (Heights.Num() <= 0)
+            {
+                return false;
+            }
+
+            Heights.Sort();
+            OutGroundZ = Heights[Heights.Num() / 2];
+            return true;
+        };
+
+    auto ResolveFlattenRadiusAndFalloff =
+        [this](const FPendingBlueprintTerrainPlacement& Pending, const FBox2D& ActorFootprint, float& OutRadius, float& OutFalloff)
+        {
+            float FlattenRadius = Pending.FlattenRadius;
+            if (FlattenRadius <= KINDA_SMALL_NUMBER)
+            {
+                if (ActorFootprint.bIsValid)
+                {
+                    const FVector2D FootprintExtent = (ActorFootprint.Max - ActorFootprint.Min) * 0.5f;
+                    FlattenRadius = FMath::Max(FootprintExtent.X, FootprintExtent.Y);
+                }
+                else
+                {
+                    FlattenRadius = 240.0f;
+                }
+            }
+
+            if (ActorFootprint.bIsValid)
+            {
+                const float CoverageRadius = ResolveCoverageRadiusFromFootprint(
+                    ActorFootprint,
+                    EditorLandscapeFlattenFootprintCoverageScale);
+                FlattenRadius = FMath::Max(FlattenRadius, CoverageRadius);
+            }
+
+            FlattenRadius += FMath::Max(0.0f, EditorLandscapeFlattenExtraMargin);
+            FlattenRadius = FMath::Clamp(FlattenRadius, 180.0f, 10000.0f);
+
+            const float MinFalloffRatio = FMath::Clamp(EditorLandscapeFlattenMinFalloffRatio, 0.0f, 1.0f);
+            float FlattenFalloff = FMath::Clamp(Pending.FlattenSmoothFalloff, 0.0f, 6000.0f);
+            FlattenFalloff = FMath::Max(FlattenFalloff, FlattenRadius * MinFalloffRatio);
+            FlattenFalloff = FMath::Clamp(FlattenFalloff, 0.0f, 6000.0f);
+
+            OutRadius = FlattenRadius;
+            OutFalloff = FlattenFalloff;
+        };
+
+#if WITH_EDITOR
+    if (bEnableEditorLandscapeFlattenForMarkedVariations &&
+        !World->IsGameWorld() &&
+        bUseGroupedEditorLandscapeFlatten &&
+        (EditorLandscapeFlattenMaxOpsPerRoom <= 0 || EditorLandscapeFlattenOpsApplied < EditorLandscapeFlattenMaxOpsPerRoom))
+    {
+        struct FFlattenCandidate
+        {
+            int32 PendingIndex = INDEX_NONE;
+            int32 MeshType = 0;
+            FVector2D CenterXY = FVector2D::ZeroVector;
+            FBox2D Footprint = FBox2D(EForceInit::ForceInit);
+            float TargetZ = 0.0f;
+            float Radius = 0.0f;
+            float Falloff = 0.0f;
+            bool bRaise = true;
+            bool bLower = true;
+        };
+
+        TArray<FFlattenCandidate> FlattenCandidates;
+        FlattenCandidates.Reserve(PendingBlueprintTerrainPlacements.Num());
+
+        for (int32 PendingIndex = 0; PendingIndex < PendingBlueprintTerrainPlacements.Num(); ++PendingIndex)
+        {
+            FPendingBlueprintTerrainPlacement& Pending = PendingBlueprintTerrainPlacements[PendingIndex];
+            AActor* CandidateActor = Pending.Actor.Get();
+            if (!IsValid(CandidateActor) ||
+                !Pending.bFlattenLandscapeUnderSpawn ||
+                Pending.bFlattenAppliedInSpawnPass)
+            {
+                continue;
+            }
+
+            FBox2D CandidateFootprint(EForceInit::ForceInit);
+            TryBuildFootprintFromActor(CandidateActor, CandidateFootprint);
+
+            float CandidateGroundZ = CandidateActor->GetActorLocation().Z;
+            bool bCandidateLandscapeCenter = Pending.bGroundHitOnLandscape;
+            if (!ResolveMedianSupportGround(CandidateActor, CandidateFootprint, CandidateGroundZ, bCandidateLandscapeCenter) ||
+                !bCandidateLandscapeCenter)
+            {
+                continue;
+            }
+
+            float CandidateRadius = 0.0f;
+            float CandidateFalloff = 0.0f;
+            ResolveFlattenRadiusAndFalloff(Pending, CandidateFootprint, CandidateRadius, CandidateFalloff);
+
+            FFlattenCandidate Candidate;
+            Candidate.PendingIndex = PendingIndex;
+            Candidate.MeshType = Pending.MeshType;
+            Candidate.Footprint = CandidateFootprint;
+            Candidate.CenterXY = CandidateFootprint.bIsValid
+                ? (CandidateFootprint.Min + CandidateFootprint.Max) * 0.5f
+                : FVector2D(CandidateActor->GetActorLocation().X, CandidateActor->GetActorLocation().Y);
+            Candidate.TargetZ = CandidateGroundZ + Pending.FlattenHeightOffset;
+            Candidate.Radius = CandidateRadius;
+            Candidate.Falloff = CandidateFalloff;
+            Candidate.bRaise = Pending.bFlattenRaiseHeights;
+            Candidate.bLower = Pending.bFlattenLowerHeights;
+            FlattenCandidates.Add(Candidate);
+        }
+
+        if (FlattenCandidates.Num() > 1)
+        {
+            const float MergeDistance = FMath::Clamp(EditorLandscapeFlattenGroupMergeDistance, 0.0f, 4000.0f);
+
+            TArray<int32> GroupIds;
+            GroupIds.Init(INDEX_NONE, FlattenCandidates.Num());
+            int32 NextGroupId = 0;
+
+            for (int32 CandidateStart = 0; CandidateStart < FlattenCandidates.Num(); ++CandidateStart)
+            {
+                if (GroupIds[CandidateStart] != INDEX_NONE)
+                {
+                    continue;
+                }
+
+                GroupIds[CandidateStart] = NextGroupId;
+                TArray<int32> Frontier;
+                Frontier.Add(CandidateStart);
+
+                for (int32 FrontierIdx = 0; FrontierIdx < Frontier.Num(); ++FrontierIdx)
+                {
+                    const int32 CurrentIndex = Frontier[FrontierIdx];
+                    const FFlattenCandidate& Current = FlattenCandidates[CurrentIndex];
+
+                    for (int32 TestIndex = 0; TestIndex < FlattenCandidates.Num(); ++TestIndex)
+                    {
+                        if (GroupIds[TestIndex] != INDEX_NONE)
+                        {
+                            continue;
+                        }
+
+                        const FFlattenCandidate& Test = FlattenCandidates[TestIndex];
+                        const bool bCloseByFootprint =
+                            Current.Footprint.bIsValid &&
+                            Test.Footprint.bIsValid &&
+                            ComputeFootprintGap2D(Current.Footprint, Test.Footprint) <= MergeDistance;
+                        const bool bCloseByCenter =
+                            FVector2D::Distance(Current.CenterXY, Test.CenterXY) <=
+                            (MergeDistance + FMath::Min(Current.Radius, Test.Radius) * 0.35f);
+
+                        if (!bCloseByFootprint && !bCloseByCenter)
+                        {
+                            continue;
+                        }
+
+                        GroupIds[TestIndex] = NextGroupId;
+                        Frontier.Add(TestIndex);
+                    }
+                }
+
+                ++NextGroupId;
+            }
+
+            TArray<TArray<int32>> Groups;
+            Groups.SetNum(NextGroupId);
+            for (int32 CandidateIndex = 0; CandidateIndex < GroupIds.Num(); ++CandidateIndex)
+            {
+                if (Groups.IsValidIndex(GroupIds[CandidateIndex]))
+                {
+                    Groups[GroupIds[CandidateIndex]].Add(CandidateIndex);
+                }
+            }
+
+            for (const TArray<int32>& Group : Groups)
+            {
+                if (Group.Num() <= 1)
+                {
+                    continue;
+                }
+                if (EditorLandscapeFlattenMaxOpsPerRoom > 0 &&
+                    EditorLandscapeFlattenOpsApplied >= EditorLandscapeFlattenMaxOpsPerRoom)
+                {
+                    break;
+                }
+
+                FBox2D GroupFootprint(EForceInit::ForceInit);
+                TArray<float> GroupHeights;
+                GroupHeights.Reserve(Group.Num());
+
+                float MaxGroupRadius = 0.0f;
+                float MaxGroupFalloff = 0.0f;
+                bool bRaise = false;
+                bool bLower = false;
+
+                for (const int32 CandidateIndex : Group)
+                {
+                    const FFlattenCandidate& Candidate = FlattenCandidates[CandidateIndex];
+                    GroupHeights.Add(Candidate.TargetZ);
+                    MaxGroupRadius = FMath::Max(MaxGroupRadius, Candidate.Radius);
+                    MaxGroupFalloff = FMath::Max(MaxGroupFalloff, Candidate.Falloff);
+                    bRaise |= Candidate.bRaise;
+                    bLower |= Candidate.bLower;
+
+                    if (Candidate.Footprint.bIsValid)
+                    {
+                        GroupFootprint += Candidate.Footprint.Min;
+                        GroupFootprint += Candidate.Footprint.Max;
+                    }
+                    else
+                    {
+                        GroupFootprint += (Candidate.CenterXY - FVector2D(Candidate.Radius, Candidate.Radius));
+                        GroupFootprint += (Candidate.CenterXY + FVector2D(Candidate.Radius, Candidate.Radius));
+                    }
+                }
+
+                if (!GroupFootprint.bIsValid || GroupHeights.Num() <= 0)
+                {
+                    continue;
+                }
+
+                GroupHeights.Sort();
+                const float TargetFlattenZ = GroupHeights[GroupHeights.Num() / 2];
+                const FVector2D GroupCenter = GroupFootprint.GetCenter();
+                const FVector2D GroupHalf = GroupFootprint.GetSize() * 0.5f;
+
+                float GroupRadius = FMath::Max(GroupHalf.X, GroupHalf.Y);
+                GroupRadius = FMath::Max(GroupRadius, MaxGroupRadius);
+                GroupRadius += FMath::Max(0.0f, EditorLandscapeFlattenExtraMargin);
+                GroupRadius = FMath::Clamp(GroupRadius, 180.0f, 10000.0f);
+
+                const float MinFalloffRatio = FMath::Clamp(EditorLandscapeFlattenMinFalloffRatio, 0.0f, 1.0f);
+                float GroupFalloff = FMath::Max(MaxGroupFalloff, GroupRadius * MinFalloffRatio);
+                GroupFalloff = FMath::Clamp(GroupFalloff, 0.0f, 6000.0f);
+
+                const float TotalRadius = GroupRadius + GroupFalloff;
+                const FBox2D CandidateFlattenFootprint(
+                    FVector2D(GroupCenter.X - TotalRadius, GroupCenter.Y - TotalRadius),
+                    FVector2D(GroupCenter.X + TotalRadius, GroupCenter.Y + TotalRadius));
+                const bool bHasCandidateFlattenFootprint = CandidateFlattenFootprint.bIsValid;
+                const float FlattenOverlapPadding = FMath::Clamp(EditorLandscapeFlattenOverlapPadding, 0.0f, 1200.0f);
+                const bool bFlattenOverlapBlocked =
+                    bAvoidOverlappingEditorLandscapeFlatten &&
+                    bHasCandidateFlattenFootprint &&
+                    IsFootprintOverlappingAny(
+                        AppliedTerrainFlattenFootprints,
+                        CandidateFlattenFootprint,
+                        FlattenOverlapPadding);
+
+                const bool bAllowOverlapForGroupedApply =
+                    Group.Num() >= FMath::Max(2, EditorLandscapeFlattenGroupMinMembersForOverride);
+                if (bFlattenOverlapBlocked && !bAllowOverlapForGroupedApply)
+                {
+                    ++FlattenOverlapSkipCount;
+                    continue;
+                }
+
+                const int32 AppliedLandscapeCount = ApplyEditorLandscapeFlattenBlob(
+                    World,
+                    this,
+                    FVector(GroupCenter.X, GroupCenter.Y, TargetFlattenZ),
+                    GetActorRotation().Yaw,
+                    GroupRadius,
+                    GroupFalloff,
+                    TargetFlattenZ,
+                    bRaise,
+                    bLower,
+                    EditorLandscapeFlattenEdgeCliffRatio,
+                    EditorLandscapeFlattenEdgeErosionRatio,
+                    EditorLandscapeFlattenEdgePatchSize,
+                    EditorLandscapeFlattenEdgeErosionStrength,
+                    EditorLandscapeFlattenEdgeSmoothStrength);
+
+                if (AppliedLandscapeCount <= 0)
+                {
+                    continue;
+                }
+
+                ++EditorLandscapeFlattenOpsApplied;
+                ++FlattenAppliedCount;
+                if (bHasCandidateFlattenFootprint)
+                {
+                    AppliedTerrainFlattenFootprints.Add(CandidateFlattenFootprint);
+                }
+
+                for (const int32 CandidateIndex : Group)
+                {
+                    if (FlattenCandidates.IsValidIndex(CandidateIndex))
+                    {
+                        const int32 PendingIndex = FlattenCandidates[CandidateIndex].PendingIndex;
+                        PreFlattenAppliedPendingIndices.Add(PendingIndex);
+                        if (PendingBlueprintTerrainPlacements.IsValidIndex(PendingIndex))
+                        {
+                            PendingBlueprintTerrainPlacements[PendingIndex].bFlattenAppliedInSpawnPass = true;
+                        }
+                    }
+                }
+            }
+
+            if (bEnableRoomWideFlattenFallback &&
+                (EditorLandscapeFlattenMaxOpsPerRoom <= 0 || EditorLandscapeFlattenOpsApplied < EditorLandscapeFlattenMaxOpsPerRoom))
+            {
+                TArray<int32> UnresolvedCandidateIndices;
+                FBox2D UnresolvedUnion(EForceInit::ForceInit);
+                for (int32 CandidateIndex = 0; CandidateIndex < FlattenCandidates.Num(); ++CandidateIndex)
+                {
+                    const int32 PendingIndex = FlattenCandidates[CandidateIndex].PendingIndex;
+                    if (PreFlattenAppliedPendingIndices.Contains(PendingIndex))
+                    {
+                        continue;
+                    }
+
+                    UnresolvedCandidateIndices.Add(CandidateIndex);
+                    const FFlattenCandidate& Candidate = FlattenCandidates[CandidateIndex];
+                    if (Candidate.Footprint.bIsValid)
+                    {
+                        UnresolvedUnion += Candidate.Footprint.Min;
+                        UnresolvedUnion += Candidate.Footprint.Max;
+                    }
+                }
+
+                const FVector RoomExtent = GetRoomExtent();
+                const float RoomArea = FMath::Max(1.0f, (RoomExtent.X * 2.0f) * (RoomExtent.Y * 2.0f));
+                const float Coverage = UnresolvedUnion.bIsValid
+                    ? ComputeFootprintArea2D(UnresolvedUnion) / RoomArea
+                    : 0.0f;
+                const bool bNeedRoomWideFallback =
+                    UnresolvedCandidateIndices.Num() >= FMath::Max(1, EditorLandscapeRoomWideFlattenMinActors) ||
+                    Coverage >= FMath::Clamp(EditorLandscapeRoomWideFlattenCoverageThreshold, 0.0f, 1.0f);
+
+                if (bNeedRoomWideFallback && UnresolvedCandidateIndices.Num() > 0)
+                {
+                    TArray<float> Heights;
+                    Heights.Reserve(UnresolvedCandidateIndices.Num());
+                    bool bRaise = false;
+                    bool bLower = false;
+                    for (const int32 CandidateIndex : UnresolvedCandidateIndices)
+                    {
+                        const FFlattenCandidate& Candidate = FlattenCandidates[CandidateIndex];
+                        Heights.Add(Candidate.TargetZ);
+                        bRaise |= Candidate.bRaise;
+                        bLower |= Candidate.bLower;
+                    }
+                    Heights.Sort();
+                    const float TargetFlattenZ = Heights[Heights.Num() / 2];
+
+                    const FVector2D FallbackCenter = UnresolvedUnion.bIsValid
+                        ? UnresolvedUnion.GetCenter()
+                        : FVector2D(GetActorLocation().X, GetActorLocation().Y);
+                    float FallbackRadius = FMath::Max(RoomExtent.X, RoomExtent.Y) + FMath::Max(0.0f, EditorLandscapeRoomWideFlattenMargin);
+                    FallbackRadius = FMath::Clamp(FallbackRadius, 180.0f, 10000.0f);
+                    const float MinFalloffRatio = FMath::Clamp(EditorLandscapeFlattenMinFalloffRatio, 0.0f, 1.0f);
+                    float FallbackFalloff = FMath::Max(EditorLandscapeRoomWideFlattenFalloff, FallbackRadius * MinFalloffRatio);
+                    FallbackFalloff = FMath::Clamp(FallbackFalloff, 0.0f, 6000.0f);
+
+                    const int32 AppliedLandscapeCount = ApplyEditorLandscapeFlattenBlob(
+                        World,
+                        this,
+                        FVector(FallbackCenter.X, FallbackCenter.Y, TargetFlattenZ),
+                        GetActorRotation().Yaw,
+                        FallbackRadius,
+                        FallbackFalloff,
+                        TargetFlattenZ,
+                        bRaise,
+                        bLower,
+                        EditorLandscapeFlattenEdgeCliffRatio,
+                        EditorLandscapeFlattenEdgeErosionRatio,
+                        EditorLandscapeFlattenEdgePatchSize,
+                        EditorLandscapeFlattenEdgeErosionStrength,
+                        EditorLandscapeFlattenEdgeSmoothStrength);
+                    if (AppliedLandscapeCount > 0)
+                    {
+                        ++EditorLandscapeFlattenOpsApplied;
+                        ++FlattenAppliedCount;
+                        for (const int32 CandidateIndex : UnresolvedCandidateIndices)
+                        {
+                            if (!FlattenCandidates.IsValidIndex(CandidateIndex))
+                            {
+                                continue;
+                            }
+                            const int32 PendingIndex = FlattenCandidates[CandidateIndex].PendingIndex;
+                            PreFlattenAppliedPendingIndices.Add(PendingIndex);
+                            if (PendingBlueprintTerrainPlacements.IsValidIndex(PendingIndex))
+                            {
+                                PendingBlueprintTerrainPlacements[PendingIndex].bFlattenAppliedInSpawnPass = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+#endif
+
+    for (int32 PendingIndex = 0; PendingIndex < PendingBlueprintTerrainPlacements.Num(); ++PendingIndex)
+    {
+        FPendingBlueprintTerrainPlacement& Pending = PendingBlueprintTerrainPlacements[PendingIndex];
+        AActor* Actor = Pending.Actor.Get();
+        if (!IsValid(Actor))
+        {
+            continue;
+        }
+
+        ++ProcessedCount;
+
+        FBox2D ActorFootprint(EForceInit::ForceInit);
+        TryBuildFootprintFromActor(Actor, ActorFootprint);
+
+        float SupportGroundZ = Actor->GetActorLocation().Z;
+        bool bLandscapeAtCenter = Pending.bGroundHitOnLandscape;
+        if (!ResolveMedianSupportGround(Actor, ActorFootprint, SupportGroundZ, bLandscapeAtCenter))
+        {
+            ++NoGroundCount;
+            continue;
+        }
+
+#if WITH_EDITOR
+        if (bEnableEditorLandscapeFlattenForMarkedVariations &&
+            !World->IsGameWorld() &&
+            Pending.bFlattenLandscapeUnderSpawn &&
+            !Pending.bFlattenAppliedInSpawnPass &&
+            (EditorLandscapeFlattenMaxOpsPerRoom <= 0 || EditorLandscapeFlattenOpsApplied < EditorLandscapeFlattenMaxOpsPerRoom))
+        {
+            const FVector ActorLocation = Actor->GetActorLocation();
+            const FVector2D FlattenCenter2D = ActorFootprint.bIsValid
+                ? (ActorFootprint.Min + ActorFootprint.Max) * 0.5f
+                : FVector2D(ActorLocation.X, ActorLocation.Y);
+
+            FCollisionQueryParams CenterQueryParams(SCENE_QUERY_STAT(RaidRoomBlueprintTerrainStabilizeCenter), false);
+            CenterQueryParams.bTraceComplex = false;
+            CenterQueryParams.AddIgnoredActor(this);
+            CenterQueryParams.AddIgnoredActor(Actor);
+            for (const TObjectPtr<AActor>& ExistingActor : SpawnedDynamicActors)
+            {
+                if (IsValid(ExistingActor))
+                {
+                    CenterQueryParams.AddIgnoredActor(ExistingActor);
+                }
+            }
+            for (const TObjectPtr<AActor>& DoorActor : SpawnedDoorActors)
+            {
+                if (IsValid(DoorActor))
+                {
+                    CenterQueryParams.AddIgnoredActor(DoorActor);
+                }
+            }
+
+            FHitResult CenterGroundHit;
+            if (TryResolveRoomSingleGroundHitAtPoint(
+                    World,
+                    FVector(FlattenCenter2D.X, FlattenCenter2D.Y, ActorLocation.Z),
+                    true,
+                    CenterQueryParams,
+                    CenterGroundHit))
+            {
+                bLandscapeAtCenter = IsLandscapeLikeHit(CenterGroundHit);
+            }
+
+            if (!bLandscapeAtCenter)
+            {
+                ++NoLandscapeCount;
+            }
+            else
+            {
+                float FlattenRadius = 0.0f;
+                float FlattenFalloff = 0.0f;
+                ResolveFlattenRadiusAndFalloff(Pending, ActorFootprint, FlattenRadius, FlattenFalloff);
+                const float TargetFlattenZ = SupportGroundZ + Pending.FlattenHeightOffset;
+
+                auto TryApplyFlattenWithRadius =
+                    [&](float RadiusToTry, const TCHAR* ReasonTag) -> bool
+                    {
+                        const float Radius = FMath::Clamp(RadiusToTry, 120.0f, 10000.0f);
+                        const float TotalRadius = Radius + FlattenFalloff;
+                        const FBox2D CandidateFlattenFootprint(
+                            FVector2D(FlattenCenter2D.X - TotalRadius, FlattenCenter2D.Y - TotalRadius),
+                            FVector2D(FlattenCenter2D.X + TotalRadius, FlattenCenter2D.Y + TotalRadius));
+                        const bool bHasCandidateFlattenFootprint = CandidateFlattenFootprint.bIsValid;
+                        const float FlattenOverlapPadding = FMath::Clamp(EditorLandscapeFlattenOverlapPadding, 0.0f, 1200.0f);
+                        const bool bFlattenOverlapBlocked =
+                            bAvoidOverlappingEditorLandscapeFlatten &&
+                            bHasCandidateFlattenFootprint &&
+                            IsFootprintOverlappingAny(
+                                AppliedTerrainFlattenFootprints,
+                                CandidateFlattenFootprint,
+                                FlattenOverlapPadding);
+
+                        if (bFlattenOverlapBlocked)
+                        {
+                            ++FlattenOverlapSkipCount;
+                            if (bLogEditorLandscapeFlatten)
+                            {
+                                UE_LOG(
+                                    LogTemp,
+                                    Warning,
+                                    TEXT("[RaidRoom][TerrainFlatten][Skip] Node=%d MeshType=%d Reason=%s Radius=%.1f Falloff=%.1f Existing=%d Padding=%.1f"),
+                                    NodeId,
+                                    Pending.MeshType,
+                                    ReasonTag,
+                                    Radius,
+                                    FlattenFalloff,
+                                    AppliedTerrainFlattenFootprints.Num(),
+                                    FlattenOverlapPadding);
+                            }
+                            return false;
+                        }
+
+                        const int32 AppliedLandscapeCount = ApplyEditorLandscapeFlattenBlob(
+                            World,
+                            this,
+                            FVector(FlattenCenter2D.X, FlattenCenter2D.Y, TargetFlattenZ),
+                            Actor->GetActorRotation().Yaw,
+                            Radius,
+                            FlattenFalloff,
+                            TargetFlattenZ,
+                            Pending.bFlattenRaiseHeights,
+                            Pending.bFlattenLowerHeights,
+                            EditorLandscapeFlattenEdgeCliffRatio,
+                            EditorLandscapeFlattenEdgeErosionRatio,
+                            EditorLandscapeFlattenEdgePatchSize,
+                            EditorLandscapeFlattenEdgeErosionStrength,
+                            EditorLandscapeFlattenEdgeSmoothStrength);
+                        if (AppliedLandscapeCount <= 0)
+                        {
+                            return false;
+                        }
+
+                        ++EditorLandscapeFlattenOpsApplied;
+                        ++FlattenAppliedCount;
+                        if (bHasCandidateFlattenFootprint)
+                        {
+                            AppliedTerrainFlattenFootprints.Add(CandidateFlattenFootprint);
+                        }
+
+                        if (bLogEditorLandscapeFlatten)
+                        {
+                            UE_LOG(
+                                LogTemp,
+                                Warning,
+                                TEXT("[RaidRoom][TerrainFlatten] Node=%d MeshType=%d Reason=%s Radius=%.1f Falloff=%.1f HeightOffset=%.1f Landscapes=%d"),
+                                NodeId,
+                                Pending.MeshType,
+                                ReasonTag,
+                                Radius,
+                                FlattenFalloff,
+                                Pending.FlattenHeightOffset,
+                                AppliedLandscapeCount);
+                        }
+
+                        return true;
+                    };
+
+                bool bFlattenApplied = TryApplyFlattenWithRadius(FlattenRadius, TEXT("BlueprintStabilize"));
+                if (!bFlattenApplied && bAvoidOverlappingEditorLandscapeFlatten)
+                {
+                    const float MinCoverageRadius = FMath::Max(
+                        120.0f,
+                        ResolveCoverageRadiusFromFootprint(ActorFootprint, EditorLandscapeFlattenFootprintCoverageScale));
+                    const float RetryRadius = FMath::Clamp(FlattenRadius * 0.60f, MinCoverageRadius, FlattenRadius - 1.0f);
+                    if (RetryRadius < FlattenRadius - KINDA_SMALL_NUMBER)
+                    {
+                        bFlattenApplied = TryApplyFlattenWithRadius(RetryRadius, TEXT("BlueprintStabilizeRetry"));
+                    }
+                }
+
+                if (bFlattenApplied)
+                {
+                    Pending.bFlattenAppliedInSpawnPass = true;
+                    bool bRefreshedLandscape = false;
+                    float RefreshedGroundZ = SupportGroundZ;
+                    if (ResolveMedianSupportGround(Actor, ActorFootprint, RefreshedGroundZ, bRefreshedLandscape))
+                    {
+                        SupportGroundZ = RefreshedGroundZ;
+                    }
+                }
+            }
+        }
+#endif
+
+        const float TargetBottomZ =
+            SupportGroundZ +
+            Pending.BaseLocalZContribution +
+            2.0f +
+            Pending.EffectiveVariationDeltaLocalZ;
+
+        float CurrentSupportMinZ = TNumericLimits<float>::Max();
+        bool bCorrected = false;
+        if (TryResolveActorLowestSupportZ(Actor, CurrentSupportMinZ))
+        {
+            const float DeltaToGround = TargetBottomZ - CurrentSupportMinZ;
+            if (!FMath::IsNearlyZero(DeltaToGround, 0.1f))
+            {
+                Actor->AddActorWorldOffset(
+                    FVector(0.0f, 0.0f, DeltaToGround),
+                    false,
+                    nullptr,
+                    ETeleportType::TeleportPhysics);
+                bCorrected = true;
+            }
+        }
+        else
+        {
+            FVector CorrectedLocation = Actor->GetActorLocation();
+            CorrectedLocation.Z = TargetBottomZ;
+            Actor->SetActorLocation(CorrectedLocation, false, nullptr, ETeleportType::TeleportPhysics);
+            bCorrected = true;
+        }
+
+        if (bCorrected)
+        {
+            ++CorrectedCount;
+        }
+    }
+
+    UE_LOG(
+        LogTemp,
+        Warning,
+        TEXT("[RaidRoom][TerrainStabilize] Node=%d Processed=%d Corrected=%d FlattenApplied=%d FlattenOverlapSkip=%d NoGround=%d NoLandscape=%d"),
+        NodeId,
+        ProcessedCount,
+        CorrectedCount,
+        FlattenAppliedCount,
+        FlattenOverlapSkipCount,
+        NoGroundCount,
+        NoLandscapeCount);
+
+    PendingBlueprintTerrainPlacements.Reset();
+}
+
 void ARaidRoomActor::GenerateTraversalWhiteboxKit(float RoomRadius, const FModularMeshKit* ThemeKit)
 {
     if (!bEnableTraversalWhiteboxKit) return;
@@ -3192,6 +5173,7 @@ void ARaidRoomActor::GenerateTraversalWhiteboxKit(float RoomRadius, const FModul
     const bool bHasTraversalMeshOverride = !TraversalMeshOverride.IsNull();
     TMap<FSoftObjectPath, float> MeshBaseLiftCache;
     TArray<FVector> OccupiedObstacleLocations;
+    TArray<FVector> OccupiedDecorationLocations;
     int32 SpawnedBlueprintObstacleCount = 0;
     FString LastPickedObstacleVariationKey;
     TMap<FString, int32> ObstacleVariationPickCounts;
@@ -3332,6 +5314,30 @@ void ARaidRoomActor::GenerateTraversalWhiteboxKit(float RoomRadius, const FModul
                 {
                     LastPickedObstacleVariationKey = BuildObstacleVariationDebugKey(Variation, VariationIndex);
                     ObstacleVariationPickCounts.FindOrAdd(LastPickedObstacleVariationKey) += 1;
+#if !UE_BUILD_SHIPPING
+                    static int32 GObstaclePickDebugLogCount = 0;
+                    if (GObstaclePickDebugLogCount < 24)
+                    {
+                        ++GObstaclePickDebugLogCount;
+                        const FString AssetPath = !Variation.Mesh.IsNull()
+                            ? Variation.Mesh.ToString()
+                            : Variation.BlueprintPrefab.ToString();
+                        const FVector VarOffset = Variation.Offset.GetLocation();
+                        UE_LOG(
+                            LogTemp,
+                            Warning,
+                            TEXT("[RaidRoom][PickDebug] Node=%d Theme=%s Env=%s MeshType=%d Key=%s Asset=%s VarOffset=(%.1f,%.1f,%.1f)"),
+                            NodeId,
+                            *NodeRow.Theme,
+                            *NodeRow.EnvType,
+                            MeshType,
+                            *LastPickedObstacleVariationKey,
+                            *AssetPath,
+                            VarOffset.X,
+                            VarOffset.Y,
+                            VarOffset.Z);
+                    }
+#endif
                     return &Variation;
                 }
             }
@@ -3438,6 +5444,7 @@ void ARaidRoomActor::GenerateTraversalWhiteboxKit(float RoomRadius, const FModul
             };
 
         const bool bIsObstacleMeshType = (MeshType == 2);
+        const bool bIsDecorationMeshType = (MeshType == 3);
         const FString SelectedObstacleVariationKey = bIsObstacleMeshType ? LastPickedObstacleVariationKey : FString();
         if (bIsObstacleMeshType)
         {
@@ -3539,6 +5546,107 @@ void ARaidRoomActor::GenerateTraversalWhiteboxKit(float RoomRadius, const FModul
                 }
             }
         }
+        else if (bIsDecorationMeshType)
+        {
+            const bool bUrbanStyledRoom =
+                NodeRow.EnvType.Equals(TEXT("Urban"), ESearchCase::IgnoreCase) ||
+                NodeRow.Theme.Equals(TEXT("Urban"), ESearchCase::IgnoreCase);
+            const float UrbanSpacingScale = bUrbanStyledRoom
+                ? FMath::Clamp(UrbanDecorationSpacingMultiplier, 1.0f, 3.0f)
+                : 1.0f;
+
+            const bool bCandidateIsBlueprintDecoration = !V.BlueprintPrefab.IsNull();
+            const float BaseSpacing = bCandidateIsBlueprintDecoration ? BlueprintDecorationMinSpacing : DecorationMinSpacing;
+            const float ScaleFactor = FMath::Clamp(FMath::Max(V.Offset.GetScale3D().X, V.Offset.GetScale3D().Y), 0.6f, 4.5f);
+            float MinSpacing = BaseSpacing * ScaleFactor * UrbanSpacingScale;
+
+            if (!V.Mesh.IsNull())
+            {
+                if (UStaticMesh* CandidateMesh = V.Mesh.LoadSynchronous())
+                {
+                    const FVector MeshExtent = CandidateMesh->GetBoundingBox().GetExtent() * V.Offset.GetScale3D().GetAbs();
+                    const float MeshRequiredSpacing = FMath::Max(MeshExtent.X, MeshExtent.Y) * 1.35f;
+                    MinSpacing = FMath::Max(MinSpacing, MeshRequiredSpacing);
+                }
+            }
+
+            if (MinSpacing > KINDA_SMALL_NUMBER)
+            {
+                for (const FVector& OccupiedLoc : OccupiedDecorationLocations)
+                {
+                    if (FVector::DistSquaredXY(OccupiedLoc, SpawnLoc) < FMath::Square(MinSpacing))
+                    {
+                        if (OutFailReason)
+                        {
+                            *OutFailReason = EObstacleSpawnFailReason::PlacementRejected;
+                        }
+                        return false;
+                    }
+                }
+            }
+
+            if (MinSpacing > KINDA_SMALL_NUMBER)
+            {
+                const FVector CandidateWorldLoc = GetActorTransform().TransformPosition(SpawnLoc);
+                for (const TObjectPtr<AActor>& ExistingActor : SpawnedDynamicActors)
+                {
+                    if (!IsValid(ExistingActor) || !ExistingActor->ActorHasTag(TEXT("MeshType_3")))
+                    {
+                        continue;
+                    }
+
+                    if (FVector::DistSquaredXY(ExistingActor->GetActorLocation(), CandidateWorldLoc) < FMath::Square(MinSpacing))
+                    {
+                        if (OutFailReason)
+                        {
+                            *OutFailReason = EObstacleSpawnFailReason::PlacementRejected;
+                        }
+                        return false;
+                    }
+                }
+
+                if (UWorld* World = GetWorld())
+                {
+                    FCollisionObjectQueryParams ObjQuery;
+                    ObjQuery.AddObjectTypesToQuery(ECC_WorldStatic);
+                    ObjQuery.AddObjectTypesToQuery(ECC_WorldDynamic);
+
+                    FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(RaidDecorationOverlapSpacing), false);
+                    QueryParams.bTraceComplex = false;
+
+                    TArray<FOverlapResult> Overlaps;
+                    if (World->OverlapMultiByObjectType(
+                        Overlaps,
+                        CandidateWorldLoc,
+                        FQuat::Identity,
+                        ObjQuery,
+                        FCollisionShape::MakeSphere(MinSpacing * 0.45f),
+                        QueryParams))
+                    {
+                        for (const FOverlapResult& Overlap : Overlaps)
+                        {
+                            const UPrimitiveComponent* HitComp = Overlap.Component.Get();
+                            const AActor* HitActor = Overlap.GetActor();
+                            if (!IsValid(HitComp))
+                            {
+                                continue;
+                            }
+
+                            const bool bDecorationComponent = HitComp->ComponentTags.Contains(TEXT("MeshType_3"));
+                            const bool bDecorationActor = IsValid(HitActor) && HitActor->ActorHasTag(TEXT("MeshType_3"));
+                            if (bDecorationComponent || bDecorationActor)
+                            {
+                                if (OutFailReason)
+                                {
+                                    *OutFailReason = EObstacleSpawnFailReason::PlacementRejected;
+                                }
+                                return false;
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         UMaterialInterface* MaterialOverrideToUse = nullptr;
         if (!bUsesThemeVariation && !V.Mesh.IsNull())
@@ -3573,6 +5681,13 @@ void ARaidRoomActor::GenerateTraversalWhiteboxKit(float RoomRadius, const FModul
                 ++SpawnedBlueprintObstacleCount;
             }
         }
+        else if (bIsDecorationMeshType && bLikelySpawned)
+        {
+            const FVector OccupiedLoc = SpawnedActor
+                ? GetActorTransform().InverseTransformPosition(SpawnedActor->GetActorLocation())
+                : SpawnLoc;
+            OccupiedDecorationLocations.Add(OccupiedLoc);
+        }
         if (!bLikelySpawned && OutFailReason)
         {
             *OutFailReason = EObstacleSpawnFailReason::PlacementRejected;
@@ -3601,7 +5716,10 @@ void ARaidRoomActor::GenerateTraversalWhiteboxKit(float RoomRadius, const FModul
     const bool bEnvOutdoor =
         Env.Equals(TEXT("Jungle"), ESearchCase::IgnoreCase) ||
         Env.Equals(TEXT("Nature"), ESearchCase::IgnoreCase) ||
-        Env.Equals(TEXT("NatureVillage"), ESearchCase::IgnoreCase);
+        Env.Equals(TEXT("NatureVillage"), ESearchCase::IgnoreCase) ||
+        NodeRow.Theme.Equals(TEXT("Jungle"), ESearchCase::IgnoreCase) ||
+        NodeRow.Theme.Equals(TEXT("Nature"), ESearchCase::IgnoreCase) ||
+        NodeRow.Theme.Equals(TEXT("NatureVillage"), ESearchCase::IgnoreCase);
     const bool bIsOpenWorld = bForceOutdoor || (!bForceIndoor && bEnvOutdoor);
     const float Half = RoomRadius - 200.0f; // 외곽 여백
 

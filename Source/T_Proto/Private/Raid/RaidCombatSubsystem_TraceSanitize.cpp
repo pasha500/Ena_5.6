@@ -12,7 +12,7 @@
 #include "UObject/SoftObjectPath.h"
 #include "UObject/UnrealType.h"
 
-namespace
+namespace RaidCombatTraceSanitizePrivate
 {
     const FName RaidTraceSanitizedTag(TEXT("RaidTraceSanitized"));
 
@@ -27,6 +27,46 @@ namespace
         }
 
         return false;
+    }
+
+    bool HasMeshTypeLikeTag(const TArray<FName>& Tags)
+    {
+        for (const FName& Tag : Tags)
+        {
+            const FString TagName = Tag.ToString();
+            if (TagName.StartsWith(TEXT("MeshType_")) || TagName.StartsWith(TEXT("RaidRoomNode_")))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    bool IsRaidRoomGameplayTraceComponent(AActor* Candidate, UPrimitiveComponent* Primitive)
+    {
+        if (!IsValid(Candidate) || !IsValid(Primitive))
+        {
+            return false;
+        }
+
+        const FString ActorClassName = Candidate->GetClass()->GetName();
+        const bool bActorIsRaidRoomLike =
+            ActorClassName.Contains(TEXT("RaidRoomActor"), ESearchCase::IgnoreCase);
+
+        const bool bActorTaggedAsRoomGameplay =
+            Candidate->ActorHasTag(TEXT("RaidRoomGenerated")) ||
+            Candidate->ActorHasTag(TEXT("RaidDoorBlocker")) ||
+            Candidate->ActorHasTag(TEXT("ObstacleBlueprint")) ||
+            HasMeshTypeLikeTag(Candidate->Tags);
+
+        const bool bComponentTaggedAsRoomGameplay =
+            Primitive->ComponentHasTag(TEXT("RaidRoomRuntimeISMC")) ||
+            Primitive->ComponentHasTag(TEXT("RaidRuntimeISMC")) ||
+            Primitive->ComponentHasTag(TEXT("ObstacleBlueprint")) ||
+            HasMeshTypeLikeTag(Primitive->ComponentTags);
+
+        return bActorIsRaidRoomLike || bActorTaggedAsRoomGameplay || bComponentTaggedAsRoomGameplay;
     }
 
     bool IsDropSoulLikeNamePath(const FString& ClassName, const FString& ObjectName, const FString& ObjectPath)
@@ -194,6 +234,11 @@ namespace
             return false;
         }
 
+        if (IsRaidRoomGameplayTraceComponent(Candidate, Primitive))
+        {
+            return false;
+        }
+
         if (IsDropSoulObject(Candidate) || IsDropSoulObject(Primitive) || IsDropSoulObject(Primitive->GetOwner()))
         {
             return false;
@@ -239,6 +284,11 @@ namespace
     bool ShouldDisableQueryCollisionForTraceBlocker(AActor* Candidate, UPrimitiveComponent* Primitive)
     {
         if (!IsValid(Candidate) || !IsValid(Primitive))
+        {
+            return false;
+        }
+
+        if (IsRaidRoomGameplayTraceComponent(Candidate, Primitive))
         {
             return false;
         }
@@ -571,7 +621,9 @@ namespace
 
         return false;
     }
-}
+} // namespace RaidCombatTraceSanitizePrivate
+
+using namespace RaidCombatTraceSanitizePrivate;
 
 void URaidCombatSubsystem::PatchBloodEffectTraceSettings()
 {

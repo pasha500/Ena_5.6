@@ -1,0 +1,14 @@
+*.uasset binary
+*.umap binary
+*.ubulk binary
+*.utoc binary
+*.ucas binary
+*.pak binary
+*.bin binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.tga binary
+*.exr binary
+*.wav binary
+*.mp4 binary
