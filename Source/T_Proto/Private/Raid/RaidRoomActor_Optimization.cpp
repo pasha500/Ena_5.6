@@ -10,9 +10,9 @@
 
 namespace
 {
-    constexpr float RoomTraversalWalkableSlopeAngleDeg = 62.0f;
+    constexpr float RoomTraversalWalkableSlopeAngleDeg_Optimization = 62.0f;
 
-    bool ShouldForceTraversalWalkableSlopeForMeshType(const int32 MeshType)
+    bool ShouldForceTraversalWalkableSlopeForMeshTypeOptimization(const int32 MeshType)
     {
         return (MeshType == 2 || MeshType == 3 || MeshType == 8);
     }
@@ -91,10 +91,10 @@ void ARaidRoomActor::ApplyISMCOptimization(UHierarchicalInstancedStaticMeshCompo
         ISMC->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
         ISMC->SetCollisionResponseToChannel(ECC_Camera, ECR_Block);
         ISMC->CanCharacterStepUpOn = ECB_Yes;
-        if (ShouldForceTraversalWalkableSlopeForMeshType(MeshType))
+        if (ShouldForceTraversalWalkableSlopeForMeshTypeOptimization(MeshType))
         {
             ISMC->SetWalkableSlopeOverride(
-                FWalkableSlopeOverride(WalkableSlope_Increase, RoomTraversalWalkableSlopeAngleDeg));
+                FWalkableSlopeOverride(WalkableSlope_Increase, RoomTraversalWalkableSlopeAngleDeg_Optimization));
         }
         else
         {

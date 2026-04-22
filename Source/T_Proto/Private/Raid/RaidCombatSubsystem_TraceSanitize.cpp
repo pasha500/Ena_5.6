@@ -623,7 +623,7 @@ namespace RaidCombatTraceSanitizePrivate
     }
 } // namespace RaidCombatTraceSanitizePrivate
 
-using namespace RaidCombatTraceSanitizePrivate;
+namespace RaidCombatTraceSanitizeAlias = RaidCombatTraceSanitizePrivate;
 
 void URaidCombatSubsystem::PatchBloodEffectTraceSettings()
 {
@@ -652,11 +652,11 @@ void URaidCombatSubsystem::PatchBloodEffectTraceSettings()
             bObservedBloodObjects = true;
             if (UObject* DefaultObject = LoadedClass->GetDefaultObject())
             {
-                if (PatchBloodTraceChannelProperty(DefaultObject, DesiredTraceType))
+                if (RaidCombatTraceSanitizeAlias::PatchBloodTraceChannelProperty(DefaultObject, DesiredTraceType))
                 {
                     ++PatchedObjectCount;
                 }
-                if (PatchBloodPrimitiveCollision(DefaultObject))
+                if (RaidCombatTraceSanitizeAlias::PatchBloodPrimitiveCollision(DefaultObject))
                 {
                     ++PatchedCollisionComponentCount;
                 }
@@ -671,17 +671,17 @@ void URaidCombatSubsystem::PatchBloodEffectTraceSettings()
         {
             continue;
         }
-        if (IsDropSoulObject(Candidate))
+        if (RaidCombatTraceSanitizeAlias::IsDropSoulObject(Candidate))
         {
             continue;
         }
 
-        bObservedBloodObjects |= LooksLikeBloodEffectObject(Candidate);
-        if (PatchBloodTraceChannelProperty(Candidate, DesiredTraceType))
+        bObservedBloodObjects |= RaidCombatTraceSanitizeAlias::LooksLikeBloodEffectObject(Candidate);
+        if (RaidCombatTraceSanitizeAlias::PatchBloodTraceChannelProperty(Candidate, DesiredTraceType))
         {
             ++PatchedObjectCount;
         }
-        if (PatchBloodPrimitiveCollision(Candidate))
+        if (RaidCombatTraceSanitizeAlias::PatchBloodPrimitiveCollision(Candidate))
         {
             ++PatchedCollisionComponentCount;
         }
@@ -690,16 +690,16 @@ void URaidCombatSubsystem::PatchBloodEffectTraceSettings()
         Candidate->GetComponents(Components);
         for (UActorComponent* Component : Components)
         {
-            if (IsDropSoulObject(Component) || IsDropSoulObject(Component ? Component->GetOwner() : nullptr))
+            if (RaidCombatTraceSanitizeAlias::IsDropSoulObject(Component) || RaidCombatTraceSanitizeAlias::IsDropSoulObject(Component ? Component->GetOwner() : nullptr))
             {
                 continue;
             }
-            bObservedBloodObjects |= LooksLikeBloodEffectObject(Component);
-            if (PatchBloodTraceChannelProperty(Component, DesiredTraceType))
+            bObservedBloodObjects |= RaidCombatTraceSanitizeAlias::LooksLikeBloodEffectObject(Component);
+            if (RaidCombatTraceSanitizeAlias::PatchBloodTraceChannelProperty(Component, DesiredTraceType))
             {
                 ++PatchedObjectCount;
             }
-            if (PatchBloodPrimitiveCollision(Component))
+            if (RaidCombatTraceSanitizeAlias::PatchBloodPrimitiveCollision(Component))
             {
                 ++PatchedCollisionComponentCount;
             }
@@ -770,15 +770,15 @@ void URaidCombatSubsystem::CleanupFloatingBloodDecals()
         {
             continue;
         }
-        if (IsDropSoulObject(DecalComp) || IsDropSoulObject(DecalComp->GetOwner()))
+        if (RaidCombatTraceSanitizeAlias::IsDropSoulObject(DecalComp) || RaidCombatTraceSanitizeAlias::IsDropSoulObject(DecalComp->GetOwner()))
         {
             continue;
         }
 
         const bool bBloodLikeDecal =
-            IsBloodDecalMaterial(DecalComp->GetDecalMaterial()) ||
-            LooksLikeBloodEffectObject(DecalComp) ||
-            LooksLikeBloodEffectObject(DecalComp->GetOwner());
+            RaidCombatTraceSanitizeAlias::IsBloodDecalMaterial(DecalComp->GetDecalMaterial()) ||
+            RaidCombatTraceSanitizeAlias::LooksLikeBloodEffectObject(DecalComp) ||
+            RaidCombatTraceSanitizeAlias::LooksLikeBloodEffectObject(DecalComp->GetOwner());
         if (!bBloodLikeDecal)
         {
             continue;
@@ -797,10 +797,10 @@ void URaidCombatSubsystem::CleanupFloatingBloodDecals()
             ObjQuery,
             FCollisionShape::MakeSphere(60.0f),
             QueryParams);
-        const bool bHasReliableSurface = HasReliableBloodSurfaceSupport(World, DecalLocation, DecalComp->GetComponentQuat(), QueryParams);
+        const bool bHasReliableSurface = RaidCombatTraceSanitizeAlias::HasReliableBloodSurfaceSupport(World, DecalLocation, DecalComp->GetComponentQuat(), QueryParams);
         const bool bTransientBloodOwner =
-            LooksLikeBloodEffectObject(DecalComp->GetOwner()) ||
-            ContainsAnyToken(DecalComp->GetPathName(), { TEXT("/Blood_VFX/"), TEXT("/NiagaraBloodFX/") });
+            RaidCombatTraceSanitizeAlias::LooksLikeBloodEffectObject(DecalComp->GetOwner()) ||
+            RaidCombatTraceSanitizeAlias::ContainsAnyToken(DecalComp->GetPathName(), { TEXT("/Blood_VFX/"), TEXT("/NiagaraBloodFX/") });
         if (bTransientBloodOwner || !bNearStaticSurface || !bHasReliableSurface)
         {
             DecalsToDestroy.Add(DecalComp);
@@ -876,7 +876,7 @@ void URaidCombatSubsystem::SanitizeProceduralFoliageCollisionForTraces()
         if (bHasPlayer && FVector::DistSquared2D(Candidate->GetActorLocation(), PlayerLocation) > MaxPlayerDistanceSq)
         {
             // Keep water-like actors exempt from distance culling because they can span very large bounds.
-            if (!IsWaterLikeActor(Candidate))
+            if (!RaidCombatTraceSanitizeAlias::IsWaterLikeActor(Candidate))
             {
                 continue;
             }
@@ -898,17 +898,17 @@ void URaidCombatSubsystem::SanitizeProceduralFoliageCollisionForTraces()
                 continue;
             }
 
-            if (!ShouldSanitizeTraceBlocker(Candidate, Primitive))
+            if (!RaidCombatTraceSanitizeAlias::ShouldSanitizeTraceBlocker(Candidate, Primitive))
             {
                 continue;
             }
 
-            if (Primitive->ComponentHasTag(RaidTraceSanitizedTag))
+            if (Primitive->ComponentHasTag(RaidCombatTraceSanitizeAlias::RaidTraceSanitizedTag))
             {
                 continue;
             }
 
-            if (ShouldDisableQueryCollisionForTraceBlocker(Candidate, Primitive))
+            if (RaidCombatTraceSanitizeAlias::ShouldDisableQueryCollisionForTraceBlocker(Candidate, Primitive))
             {
                 // Non-gameplay blockers (grass/PFS volume brushes/water surfaces) should never absorb bullet traces.
                 Primitive->SetCollisionEnabled(ECollisionEnabled::NoCollision);
@@ -923,10 +923,10 @@ void URaidCombatSubsystem::SanitizeProceduralFoliageCollisionForTraces()
                 Primitive->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Ignore);
                 Primitive->SetCollisionResponseToChannel(ECC_Visibility, ECR_Ignore);
                 Primitive->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
-                ForceAllGameTraceChannelsToIgnore(Primitive);
+                RaidCombatTraceSanitizeAlias::ForceAllGameTraceChannelsToIgnore(Primitive);
             }
 
-            Primitive->ComponentTags.AddUnique(RaidTraceSanitizedTag);
+            Primitive->ComponentTags.AddUnique(RaidCombatTraceSanitizeAlias::RaidTraceSanitizedTag);
             ++PatchedComponentCount;
             bActorPatched = true;
 

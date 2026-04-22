@@ -366,7 +366,7 @@ namespace
         return IsWaterActorOrComponent(Hit.GetActor(), Hit.GetComponent());
     }
 
-    bool IsLandscapeLikeHit(const FHitResult& Hit)
+    bool IsLandscapeLikeHitForLayout(const FHitResult& Hit)
     {
         const AActor* HitActor = Hit.GetActor();
         const UPrimitiveComponent* HitComp = Hit.GetComponent();
@@ -481,7 +481,7 @@ namespace
             {
                 BestGeneral = &Hit;
             }
-            if (IsLandscapeLikeHit(Hit))
+            if (IsLandscapeLikeHitForLayout(Hit))
             {
                 if (!BestLandscape || Hit.Distance < BestLandscape->Distance)
                 {
