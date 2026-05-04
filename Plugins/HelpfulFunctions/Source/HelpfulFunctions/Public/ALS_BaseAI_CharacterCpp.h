@@ -61,7 +61,7 @@ public:
 
 protected:
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI Config", meta = (AllowedClasses = "ALS_DamageConfigData"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI Config", meta = (AllowedClasses = "/Script/HelpfulFunctions.ALS_DamageConfigData"))
 	UClass* DamageDataClass;
 
 	// Basic Variables

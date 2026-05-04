@@ -212,7 +212,7 @@ int32 URaidCombatSubsystem::ExecuteRoomSpawnPlan(ARaidRoomActor* Room, const TAr
         const FVector SpawnedLoc = SpawnedEnemy->GetActorLocation();
         const double SpawnNow = World->GetTimeSeconds();
         const double RecoveryGraceUntil = SpawnNow + FMath::Max(0.0f, (double)EnemyRecoverySpawnGraceSeconds);
-        const double ActivationTime = SpawnNow + FMath::Max(0.0f, EnemySearchStartDelay);
+        const double ActivationTime = ResolveEnemySearchActivationTime(RoomId, SpawnedLoc, SpawnNow, GetPrimaryPlayerPawn());
         EnemyLastKnownValidLocationByPawn.Add(WeakSpawnedEnemy, SpawnedLoc);
         EnemyStuckLastProgressLocationByPawn.Add(WeakSpawnedEnemy, SpawnedLoc);
         EnemyStuckLastProgressTimeByPawn.Add(WeakSpawnedEnemy, SpawnNow);
@@ -224,6 +224,7 @@ int32 URaidCombatSubsystem::ExecuteRoomSpawnPlan(ARaidRoomActor* Room, const TAr
         EnemySearchActivationTimeByPawn.Add(WeakSpawnedEnemy, ActivationTime);
         EnemySearchNextOrderTimeByPawn.Add(WeakSpawnedEnemy, ActivationTime + FMath::FRandRange(0.08, 0.55));
         SpawnedEnemy->OnDestroyed.AddDynamic(this, &URaidCombatSubsystem::OnEnemyDestroyed);
+        RaiseRoomCombatAlert(RoomId, SpawnNow);
         LogTrackedEnemyState(SpawnedEnemy, RoomId, bFromPrewarm ? TEXT("SpawnedFromPrewarm") : TEXT("Spawned"));
 
         ++SpawnedCount;

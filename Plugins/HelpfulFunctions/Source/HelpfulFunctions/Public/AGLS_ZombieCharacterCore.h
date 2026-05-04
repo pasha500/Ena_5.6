@@ -293,7 +293,7 @@ UWAGA: Użycie Deformer Graph jest kosztowne w przypadku wielu instancji tej kla
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "True", Category = "Zombie Core|Deformer"))
 	UMeshDeformer* MeshDeformerClass = nullptr;
 
-	UPROPERTY(EditDefaultsOnly, meta = (Bitmask, BitmaskEnum = ECharacterDetailModeFlags, Category = "Zombie Core|Deformer"))
+	UPROPERTY(EditDefaultsOnly, meta = (Bitmask, BitmaskEnum = "/Script/HelpfulFunctions.ECharacterDetailModeFlags", Category = "Zombie Core|Deformer"))
 	int32 DeformerActivationState = 0;
 	UFUNCTION(BlueprintPure, Category = "Zombie|Deformer", meta = (Keywords = "Zombie,Character,Deformer"))
 	bool GetDeformerActivationLOD(AGLS_LOD_State CurrentState);

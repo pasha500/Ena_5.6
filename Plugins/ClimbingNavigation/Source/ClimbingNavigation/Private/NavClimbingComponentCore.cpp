@@ -1131,7 +1131,7 @@ void UNavClimbingComponentCore::TickComponent(float DeltaTime, ELevelTick TickTy
 		GEngine->AddOnScreenDebugMessage(12, 0.0, FColor::Emerald, S1, false);
 
 		S1 = TEXT("04) Enum: NavClimbActionState: ");
-		const UEnum* EnumPtr = FindObject<UEnum>(ANY_PACKAGE, TEXT("ENavClimbActionState"), true);
+		const UEnum* EnumPtr = StaticEnum<ENavClimbActionState>();
 		if (EnumPtr)
 		{
 			FString EnumValue = EnumPtr->GetNameByValue((int32)NavClimbActionState).ToString(); // Nazwa stanu

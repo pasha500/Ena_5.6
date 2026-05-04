@@ -378,6 +378,22 @@ public:
     UPROPERTY(EditAnywhere, Category = "Raid|Step 2. Environment Setup|Ground Snap")
     bool bUseAdaptiveGroundMultiSampleForBackgroundScatter = true;
 
+    // 급경사/협소 지지면(샘플 지면 유효율 낮거나 높이 편차 큼) 후보를 배경 스폰에서 제외한다.
+    UPROPERTY(EditAnywhere, Category = "Raid|Step 2. Environment Setup|Ground Snap")
+    bool bRejectSteepOrNarrowGroundForBackgroundScatter = true;
+
+    UPROPERTY(EditAnywhere, Category = "Raid|Step 2. Environment Setup|Ground Snap", meta = (ClampMin = "10.0", ClampMax = "85.0", EditCondition = "bRejectSteepOrNarrowGroundForBackgroundScatter"))
+    float BackgroundMaxAllowedSlopeDeg = 49.0f;
+
+    UPROPERTY(EditAnywhere, Category = "Raid|Step 2. Environment Setup|Ground Snap", meta = (ClampMin = "0.10", ClampMax = "1.00", EditCondition = "bRejectSteepOrNarrowGroundForBackgroundScatter"))
+    float BackgroundMinGroundSupportHitRatio = 0.62f;
+
+    UPROPERTY(EditAnywhere, Category = "Raid|Step 2. Environment Setup|Ground Snap", meta = (ClampMin = "5.0", ClampMax = "1200.0", EditCondition = "bRejectSteepOrNarrowGroundForBackgroundScatter"))
+    float BackgroundMaxGroundSupportHeightRange = 210.0f;
+
+    UPROPERTY(EditAnywhere, Category = "Raid|Step 2. Environment Setup|Ground Snap", meta = (ClampMin = "3", ClampMax = "16", EditCondition = "bRejectSteepOrNarrowGroundForBackgroundScatter"))
+    int32 BackgroundGroundSupportRadialSamples = 8;
+
     // true면 CSV 좌표 분포의 중심을 LayoutManager 좌표 원점으로 재정렬해 한쪽 치우침을 방지.
     UPROPERTY(EditAnywhere, Category = "Raid|Step 2. Environment Setup")
     bool bCenterRoomLayoutAroundManager = true;
@@ -407,12 +423,17 @@ public:
     // If true, auto-bake runs only when no prebuilt room actors exist in editor world.
     // If false, auto-bake always rebuilds before PIE.
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Raid|Step 3. Actions|Editor Automation", meta = (EditCondition = "bAutoBakeLayoutBeforePIE"))
-    bool bAutoBakeOnlyIfNoPrebuiltRooms = false;
+    bool bAutoBakeOnlyIfNoPrebuiltRooms = true;
 
     // Keep prebuilt room geometry as-is at runtime by default.
     // Enable only if you explicitly want runtime regeneration of room meshes.
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Raid|Step 3. Actions")
     bool bRegeneratePrebuiltRoomLayoutOnBeginPlay = false;
+
+    // Safety net for packaged/runtime: when keeping prebuilt rooms,
+    // auto-regenerate only rooms that appear to have lost themed obstacle/deco geometry.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Raid|Step 3. Actions")
+    bool bAutoRecoverInvalidPrebuiltRoomGeometryAtRuntime = true;
 
     // --- STEP 3: 스폰 및 클리어 ---
     UFUNCTION(BlueprintCallable, Category = "Raid|Step 3. Actions")

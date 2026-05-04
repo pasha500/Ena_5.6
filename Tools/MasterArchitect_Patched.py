@@ -693,7 +693,7 @@ class MasterArchitect(tk.Tk):
                     layer += 1
         return coords
 
-    # 🔥 [수정] 부채꼴 완전 차단! 층(Depth)마다 360도를 정확히 N등분하여 사방팔방으로 완벽히 분산배치!
+    # [수정] 부채꼴 완전 차단! 층(Depth)마다 360도를 정확히 N등분하여 사방팔방으로 완벽히 분산배치!
     def _build_radial_coords(self, rooms, adjacency):
         self._log("Using Open World (Radial 360) Layout Algorithm...")
         depths = {0: 0}; queue = [0]; parents = {0: 0}

@@ -384,7 +384,7 @@ This function forces the controlled Character to change its movement direction v
 in the path. Note that this function is not responsive and is designed to work only with HumanAI.*/
 bool AAGLS_Human_ControllerCoreAI::TryToAvoidOtherCharacter_Implementation(UPARAM(ref)FVector& FollowDirection, float TraceRadiusScale, float TraceLenghtOffset, float PerGaitInputStrength, bool DrawTrace)
 {
-    if (!AIMACRO::GetCurrentPath(this)) 
+    if (!AIMACRO::GetCurrentPath(this) || AIMACRO::GetCurrentPathPoints(this).Num() == 0)
     {
         //GEngine->AddOnScreenDebugMessage(-1, 0, FColor::Red, TEXT("TryToAvoidOtherCharacter - Failed becouse Path is Not VALID"));
         FollowDirection = FVector(0, 0, 0); return false;
@@ -397,8 +397,13 @@ bool AAGLS_Human_ControllerCoreAI::TryToAvoidOtherCharacter_Implementation(UPARA
     }
 
     FVector DesiredMoveInput = FVector(0, 0, 0);
-    FVector NextPathPoint = AIMACRO::GetCurrentPathPoints(this)[KML::Clamp(AIMACRO::GetCurrentPathIndex(this) + 1, 0, AIMACRO::GetCurrentPathPoints(this).Num() - 1)];
-    DesiredMoveInput = NextPathPoint - AIMACRO::GetCurrentPathPoints(this)[AIMACRO::GetCurrentPathIndex(this)];
+    const TArray<FVector>& PathPoints = AIMACRO::GetCurrentPathPoints(this);
+    const int32 PathNum = PathPoints.Num();
+    if (PathNum == 0) { FollowDirection = FVector(0, 0, 0); return false; }
+    const int32 CurrentIdx = KML::Clamp(AIMACRO::GetCurrentPathIndex(this), 0, PathNum - 1);
+    const int32 NextIdx = KML::Clamp(CurrentIdx + 1, 0, PathNum - 1);
+    FVector NextPathPoint = PathPoints[NextIdx];
+    DesiredMoveInput = NextPathPoint - PathPoints[CurrentIdx];
     DesiredMoveInput.Normalize();
 
     if (FollowDirection.Length() > 0.5)

@@ -40,6 +40,7 @@ public class IWALS_AbilitySystem : ModuleRules
 			{
 				"CoreUObject",
 				"Engine",
+				"InputCore",
 				"Slate",
 				"SlateCore",
 				"GameplayAbilities", 

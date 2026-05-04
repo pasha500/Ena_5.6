@@ -110,7 +110,7 @@ void URaidCombatSubsystem::SetWaveDefinitions(const TArray<FRaidWaveDefinition>&
 
     if (bEnableCombatPerfLogs && PreloadedWaveClassCount > 0)
     {
-        UE_LOG(LogTemp, Warning, TEXT("[RaidCombat] Preloaded wave enemy classes: %d"), PreloadedWaveClassCount);
+        UE_LOG(LogTemp, Display, TEXT("[RaidCombat] Preloaded wave enemy classes: %d"), PreloadedWaveClassCount);
     }
 }
 

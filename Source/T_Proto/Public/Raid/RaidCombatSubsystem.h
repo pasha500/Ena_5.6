@@ -280,6 +280,10 @@ private:
     void LogTrackedEnemyState(APawn* EnemyPawn, int32 RoomId, const TCHAR* Reason);
     bool IsPawnDeadLike(const APawn* EnemyPawn) const;
     bool IsPlayerLikelyMakingGunfireNoise(const APawn* PlayerPawn) const;
+    bool IsRoomCombatAlertActive(int32 RoomId, double NowSeconds) const;
+    void RaiseRoomCombatAlert(int32 RoomId, double NowSeconds);
+    double ResolveEnemySearchActivationTime(int32 RoomId, const FVector& EnemyLocation, double NowSeconds, const APawn* PlayerPawn) const;
+    double ResolveControllerSpawnDelaySeconds(const APawn* SpawnedEnemy, int32 RoomId, int32 SpawnOrderIndex) const;
     void DisableDeadEnemyDamageSources(APawn* EnemyPawn, const TCHAR* Reason);
     void UpdateEnemySearchBehavior(APawn* EnemyPawn, int32 RoomId, double NowSeconds, APawn* PlayerPawn);
     bool RecoverEnemyIfOutOfWorld(APawn* EnemyPawn, int32 RoomId, bool& bOutNeedsCull);
@@ -721,6 +725,9 @@ private:
     UPROPERTY(EditAnywhere, Category = "Raid|Combat|Search", meta = (ClampMin = "0.0", ClampMax = "120.0"))
     float EnemySearchStartDelay = 1.5f;
 
+    UPROPERTY(EditAnywhere, Category = "Raid|Combat|Search", meta = (ClampMin = "0.0", ClampMax = "5.0"))
+    float EnemySearchImmediateStartDelay = 0.18f;
+
     UPROPERTY(EditAnywhere, Category = "Raid|Combat|Search", meta = (ClampMin = "0.1", ClampMax = "10.0"))
     float EnemySearchPatrolInterval = 2.2f;
 
@@ -759,6 +766,15 @@ private:
 
     UPROPERTY(EditAnywhere, Category = "Raid|Combat|Search", meta = (ClampMin = "0.05", ClampMax = "5.0", EditCondition = "bBridgePlayerGunfireToAISenseHearing"))
     float PlayerGunfireNoiseLoudness = 1.0f;
+
+    UPROPERTY(EditAnywhere, Category = "Raid|Combat|Search", meta = (ClampMin = "1.0", ClampMax = "60.0"))
+    float RoomCombatAlertHoldSeconds = 12.0f;
+
+    UPROPERTY(EditAnywhere, Category = "Raid|Combat|Search", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+    float EnemyControllerSpawnDelayScaleWhenAlerted = 0.15f;
+
+    UPROPERTY(EditAnywhere, Category = "Raid|Combat|Search", meta = (ClampMin = "300.0", ClampMax = "20000.0"))
+    float EnemyControllerSpawnDelayNearPlayerDistance = 2400.0f;
 
     UPROPERTY(EditAnywhere, Category = "Raid|Combat|Zombie")
     bool bDisableZombieGrab = true;
@@ -826,6 +842,7 @@ private:
     TMap<TWeakObjectPtr<APawn>, FVector> EnemyTrackedLastObservedLocationByPawn;
     TMap<TWeakObjectPtr<APawn>, double> EnemySearchActivationTimeByPawn;
     TMap<TWeakObjectPtr<APawn>, double> EnemySearchNextOrderTimeByPawn;
+    TMap<int32, double> RoomCombatAlertUntilByRoomId;
     TSet<TWeakObjectPtr<AActor>> ProcessedEnemyDeathActors;
     TSet<FString> ProcessedEnemyDeathKeys;
 };

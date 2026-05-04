@@ -981,6 +981,6 @@ void URaidCombatSubsystem::SanitizeProceduralFoliageCollisionForTraces()
 
     if (PatchedSamples.Num() > 0 && bShouldLogSummary)
     {
-        UE_LOG(LogTemp, Warning, TEXT("[RaidCombat] Trace sanitize sample targets: %s"), *FString::Join(PatchedSamples, TEXT(", ")));
+        UE_LOG(LogTemp, Display, TEXT("[RaidCombat] Trace sanitize sample targets: %s"), *FString::Join(PatchedSamples, TEXT(", ")));
     }
 }

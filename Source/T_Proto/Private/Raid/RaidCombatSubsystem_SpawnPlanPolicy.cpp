@@ -143,6 +143,6 @@ void URaidCombatSubsystem::PrepareUpcomingRoomSpawnPlans(ARaidRoomActor* Cleared
 
     if (bEnableCombatPerfLogs && BuiltCount > 0)
     {
-        UE_LOG(LogTemp, Warning, TEXT("[RaidCombat] Prewarmed room spawn plans updated. Built=%d Cached=%d"), BuiltCount, PrewarmedSpawnPlansByRoomId.Num());
+        UE_LOG(LogTemp, Display, TEXT("[RaidCombat] Prewarmed room spawn plans updated. Built=%d Cached=%d"), BuiltCount, PrewarmedSpawnPlansByRoomId.Num());
     }
 }

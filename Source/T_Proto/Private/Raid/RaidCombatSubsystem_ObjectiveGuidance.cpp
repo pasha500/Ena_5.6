@@ -421,7 +421,7 @@ void URaidCombatSubsystem::UpdateCompassForNextRooms(ARaidRoomActor* ClearedRoom
             AddPOI(CurrentObjectiveLocation, TEXT("Fallback"));
             if (bEnableCombatPerfLogs)
             {
-                UE_LOG(LogTemp, Warning, TEXT("[RaidCombat] Compass fallback objective selected: Room %d"), CurrentObjectiveRoomId);
+                UE_LOG(LogTemp, Display, TEXT("[RaidCombat] Compass fallback objective selected: Room %d"), CurrentObjectiveRoomId);
             }
         }
     }

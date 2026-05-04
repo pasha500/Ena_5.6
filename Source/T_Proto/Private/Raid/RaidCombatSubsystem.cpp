@@ -1688,6 +1688,95 @@ bool URaidCombatSubsystem::IsPlayerLikelyMakingGunfireNoise(const APawn* PlayerP
     return false;
 }
 
+bool URaidCombatSubsystem::IsRoomCombatAlertActive(int32 RoomId, double NowSeconds) const
+{
+    if (RoomId < 0)
+    {
+        return false;
+    }
+
+    const double AlertUntil = RoomCombatAlertUntilByRoomId.FindRef(RoomId);
+    return AlertUntil > NowSeconds;
+}
+
+void URaidCombatSubsystem::RaiseRoomCombatAlert(int32 RoomId, double NowSeconds)
+{
+    if (RoomId < 0)
+    {
+        return;
+    }
+
+    const double HoldSeconds = FMath::Max(1.0, static_cast<double>(RoomCombatAlertHoldSeconds));
+    const double NewAlertUntil = NowSeconds + HoldSeconds;
+    double& ExistingAlertUntil = RoomCombatAlertUntilByRoomId.FindOrAdd(RoomId);
+    ExistingAlertUntil = FMath::Max(ExistingAlertUntil, NewAlertUntil);
+}
+
+double URaidCombatSubsystem::ResolveEnemySearchActivationTime(int32 RoomId, const FVector& EnemyLocation, double NowSeconds, const APawn* PlayerPawn) const
+{
+    double DelaySeconds = FMath::Max(0.0f, EnemySearchStartDelay);
+    const double ImmediateDelay = FMath::Max(0.0f, EnemySearchImmediateStartDelay);
+
+    if (IsRoomCombatAlertActive(RoomId, NowSeconds))
+    {
+        DelaySeconds = FMath::Min(DelaySeconds, ImmediateDelay);
+    }
+
+    if (IsValid(PlayerPawn))
+    {
+        const float DistToPlayer = FVector::Dist2D(EnemyLocation, PlayerPawn->GetActorLocation());
+        const float NearDistance = FMath::Max(800.0f, EnemyAutoChaseDistance * 1.15f);
+        if (DistToPlayer <= NearDistance)
+        {
+            DelaySeconds = FMath::Min(DelaySeconds, ImmediateDelay);
+        }
+    }
+
+    return NowSeconds + DelaySeconds;
+}
+
+double URaidCombatSubsystem::ResolveControllerSpawnDelaySeconds(const APawn* SpawnedEnemy, int32 RoomId, int32 SpawnOrderIndex) const
+{
+    const float DelayStep = FMath::Max(0.0f, EnemyControllerSpawnDelayStep);
+    float DelaySeconds = DelayStep * static_cast<float>(FMath::Clamp(SpawnOrderIndex, 0, 24));
+    if (DelaySeconds <= KINDA_SMALL_NUMBER)
+    {
+        return 0.0;
+    }
+
+    const UWorld* World = GetWorld();
+    if (!World)
+    {
+        return DelaySeconds;
+    }
+
+    const double NowSeconds = World->GetTimeSeconds();
+    const bool bRoomAlert = IsRoomCombatAlertActive(RoomId, NowSeconds);
+
+    bool bNearPlayer = false;
+    if (IsValid(SpawnedEnemy))
+    {
+        if (const APawn* PlayerPawn = GetPrimaryPlayerPawn())
+        {
+            const float DistToPlayer = FVector::Dist2D(SpawnedEnemy->GetActorLocation(), PlayerPawn->GetActorLocation());
+            bNearPlayer = DistToPlayer <= FMath::Max(300.0f, EnemyControllerSpawnDelayNearPlayerDistance);
+        }
+    }
+
+    if (bRoomAlert || bNearPlayer)
+    {
+        const float Scale = FMath::Clamp(EnemyControllerSpawnDelayScaleWhenAlerted, 0.0f, 1.0f);
+        DelaySeconds *= Scale;
+    }
+
+    if (SpawnOrderIndex <= 0 && (bRoomAlert || bNearPlayer))
+    {
+        DelaySeconds = 0.0f;
+    }
+
+    return FMath::Max(0.0f, DelaySeconds);
+}
+
 void URaidCombatSubsystem::DisableDeadEnemyDamageSources(APawn* EnemyPawn, const TCHAR* Reason)
 {
     if (!IsValid(EnemyPawn))
@@ -1803,9 +1892,11 @@ void URaidCombatSubsystem::UpdateEnemySearchBehavior(APawn* EnemyPawn, int32 Roo
     const bool bHasPlayer = IsValid(PlayerPawn);
     const float DistanceToPlayer = bHasPlayer ? FVector::Dist2D(EnemyPawn->GetActorLocation(), PlayerPawn->GetActorLocation()) : TNumericLimits<float>::Max();
     const bool bGunfireDetected = bHasPlayer && IsPlayerLikelyMakingGunfireNoise(PlayerPawn);
+    const bool bRoomAlertActive = IsRoomCombatAlertActive(RoomId, NowSeconds);
+    const float ReactiveChaseDistance = FMath::Max(700.0f, EnemyGunshotHearingDistance * 1.10f);
     const bool bShouldChasePlayer =
         bHasPlayer &&
-        ((bGunfireDetected && DistanceToPlayer <= FMath::Max(500.0f, EnemyGunshotHearingDistance)) ||
+        (((bGunfireDetected || bRoomAlertActive) && DistanceToPlayer <= ReactiveChaseDistance) ||
             DistanceToPlayer <= FMath::Max(500.0f, EnemyAutoChaseDistance));
 
     const FString ControllerClassName = AIController->GetClass()->GetName();
@@ -1821,7 +1912,7 @@ void URaidCombatSubsystem::UpdateEnemySearchBehavior(APawn* EnemyPawn, int32 Roo
     {
         // Keep StateTree as owner of detailed behavior, but add a minimal reactive assist
         // so enemies never stay idle during obvious gunfire/close-threat moments.
-        if (bEnableStateTreeReactiveSearchAssist && bShouldChasePlayer)
+        if (bHasPlayer && bEnableStateTreeReactiveSearchAssist && (bShouldChasePlayer || bRoomAlertActive))
         {
             AIController->SetFocus(PlayerPawn);
             AIController->MoveToActor(PlayerPawn, AcceptanceRadius, true, true, true, nullptr, true);
@@ -1929,8 +2020,9 @@ void URaidCombatSubsystem::OnEnemySpawned(APawn* Enemy, int32 RoomId)
     const TWeakObjectPtr<APawn> WeakEnemy(Enemy);
     const FVector SpawnLoc = Enemy->GetActorLocation();
     const double NowSeconds = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+    const APawn* PlayerPawn = GetPrimaryPlayerPawn();
     const double RecoveryGraceUntil = NowSeconds + FMath::Max(0.0f, (double)EnemyRecoverySpawnGraceSeconds);
-    const double ActivationTime = NowSeconds + FMath::Max(0.0f, EnemySearchStartDelay);
+    const double ActivationTime = ResolveEnemySearchActivationTime(RoomId, SpawnLoc, NowSeconds, PlayerPawn);
     EnemyLastKnownValidLocationByPawn.Add(WeakEnemy, SpawnLoc);
     EnemyStuckLastProgressLocationByPawn.Add(WeakEnemy, SpawnLoc);
     EnemyStuckLastProgressTimeByPawn.Add(WeakEnemy, NowSeconds);
@@ -1942,6 +2034,7 @@ void URaidCombatSubsystem::OnEnemySpawned(APawn* Enemy, int32 RoomId)
     EnemySearchActivationTimeByPawn.Add(WeakEnemy, ActivationTime);
     EnemySearchNextOrderTimeByPawn.Add(WeakEnemy, ActivationTime + FMath::FRandRange(0.08, 0.55));
     Enemy->OnDestroyed.AddUniqueDynamic(this, &URaidCombatSubsystem::OnEnemyDestroyed);
+    RaiseRoomCombatAlert(RoomId, NowSeconds);
     LogTrackedEnemyState(Enemy, RoomId, TEXT("ExternalSpawn"));
 }
 
@@ -2223,6 +2316,9 @@ void URaidCombatSubsystem::PreloadWarmupAssets()
     WarmupAssets.AddUnique(FSoftObjectPath(TEXT("/Game/Game/AILevel/Blueprints/Interfaces/WBP_RaidRegionBanner.WBP_RaidRegionBanner_C")));
     WarmupAssets.AddUnique(FSoftObjectPath(TEXT("/Game/Game/AILevel/Blueprints/Interfaces/WBP_RaidCompass.WBP_RaidCompass_C")));
     WarmupAssets.AddUnique(FSoftObjectPath(TEXT("/Game/Game/AILevel/Blueprints/Interfaces/WBP_ItemDot.WBP_ItemDot_C")));
+    WarmupAssets.AddUnique(FSoftObjectPath(TEXT("/Game/Game/Particles/NS_BulletTrail.NS_BulletTrail")));
+    WarmupAssets.AddUnique(FSoftObjectPath(TEXT("/Game/Game/Particles/NS_CartridgeCaseDrop_Mesh.NS_CartridgeCaseDrop_Mesh")));
+    WarmupAssets.AddUnique(FSoftObjectPath(TEXT("/Game/AdvancedLocomotionV4/Blood_VFX/Particles/NS_BloodEffect.NS_BloodEffect")));
     WarmupAssets.AddUnique(FSoftObjectPath(TEXT("/Game/Game/Particles/NiagaraBloodFX/NS_BloodEffect_02.NS_BloodEffect_02")));
     WarmupAssets.AddUnique(FSoftObjectPath(TEXT("/Game/Game/Particles/NiagaraBloodFX/NS_BloodBurts_01.NS_BloodBurts_01")));
     WarmupAssets.AddUnique(FSoftObjectPath(TEXT("/Game/AdvancedLocomotionV4/Drop_VFX/NS_DropSoul.NS_DropSoul")));
@@ -2767,6 +2863,7 @@ void URaidCombatSubsystem::ResetSubsystem()
     EnemyTrackedLastObservedLocationByPawn.Empty();
     EnemySearchActivationTimeByPawn.Empty();
     EnemySearchNextOrderTimeByPawn.Empty();
+    RoomCombatAlertUntilByRoomId.Empty();
     CachedPrimaryPlayerPawn.Reset();
     NextPrimaryPawnRefreshTimeSeconds = 0.0;
     ClearPOIs();
@@ -2844,6 +2941,7 @@ void URaidCombatSubsystem::Deinitialize()
     EnemyTrackedLastObservedLocationByPawn.Empty();
     EnemySearchActivationTimeByPawn.Empty();
     EnemySearchNextOrderTimeByPawn.Empty();
+    RoomCombatAlertUntilByRoomId.Empty();
     CachedPrimaryPlayerPawn.Reset();
     NextPrimaryPawnRefreshTimeSeconds = 0.0;
     ActivePOIs.Empty();
@@ -3191,6 +3289,10 @@ void URaidCombatSubsystem::StartCombatForRoom(ARaidRoomActor* Room)
 
     RoomById.Add(Room->GetNodeId(), Room);
     Room->SetCombatStarted(true);
+    if (World)
+    {
+        RaiseRoomCombatAlert(Room->GetNodeId(), World->GetTimeSeconds());
+    }
     ClearPOIs();
 
     if (bStartRoom)
@@ -3258,6 +3360,14 @@ void URaidCombatSubsystem::EnforceTraceCollisionOnAllAIPawns()
     }
 
     const double NowSeconds = World->GetTimeSeconds();
+    for (auto AlertIt = RoomCombatAlertUntilByRoomId.CreateIterator(); AlertIt; ++AlertIt)
+    {
+        if (AlertIt.Value() <= NowSeconds)
+        {
+            AlertIt.RemoveCurrent();
+        }
+    }
+
     const bool bInSpawnHeavyTaskCooldown = (NowSeconds < RecentSpawnHeavyWorkDeferUntilSeconds);
     const bool bNeedFoliageSanitize = !bInSpawnHeavyTaskCooldown && (NowSeconds >= NextFoliageSanitizeRetryTimeSeconds);
     const bool bNeedBloodCleanup = !bInSpawnHeavyTaskCooldown && (NowSeconds >= NextBloodDecalCleanupTimeSeconds);
@@ -3301,6 +3411,24 @@ void URaidCombatSubsystem::EnforceTraceCollisionOnAllAIPawns()
 
     APawn* PrimaryPlayerPawn = GetPrimaryPlayerPawn();
     const bool bPlayerGunfireDetected = IsValid(PrimaryPlayerPawn) && IsPlayerLikelyMakingGunfireNoise(PrimaryPlayerPawn);
+    if (bPlayerGunfireDetected)
+    {
+        TSet<int32> AlertRoomIds;
+        for (const TPair<AActor*, int32>& EnemyPair : EnemyToRoomMap)
+        {
+            const APawn* EnemyPawn = Cast<APawn>(EnemyPair.Key);
+            if (!IsValid(EnemyPawn) || EnemyPawn->IsPlayerControlled())
+            {
+                continue;
+            }
+            AlertRoomIds.Add(EnemyPair.Value);
+        }
+
+        for (const int32 AlertRoomId : AlertRoomIds)
+        {
+            RaiseRoomCombatAlert(AlertRoomId, NowSeconds);
+        }
+    }
     if (bBridgePlayerGunfireToAISenseHearing &&
         bPlayerGunfireDetected &&
         NowSeconds >= NextPlayerGunfireNoiseReportTimeSeconds)
@@ -3652,8 +3780,7 @@ void URaidCombatSubsystem::SpawnEnemyControllerDeferred(APawn* SpawnedEnemy, int
         };
 
     UWorld* World = GetWorld();
-    const float DelayStep = FMath::Max(0.0f, EnemyControllerSpawnDelayStep);
-    const float DelaySeconds = DelayStep * (float)FMath::Clamp(SpawnOrderIndex, 0, 24);
+    const double DelaySeconds = ResolveControllerSpawnDelaySeconds(SpawnedEnemy, RoomId, SpawnOrderIndex);
     if (!World || DelaySeconds <= KINDA_SMALL_NUMBER)
     {
         SpawnedEnemy->SpawnDefaultController();
@@ -3725,7 +3852,7 @@ void URaidCombatSubsystem::SpawnEnemiesForRoom(ARaidRoomActor* Room)
         if (SpawnedCountNew > 0)
         {
             AliveByRoomId.Add(RoomIdNew, SpawnedCountNew);
-            UE_LOG(LogTemp, Warning, TEXT("[RaidCombat] %d enemies spawned in Room %d"), SpawnedCountNew, RoomIdNew);
+            UE_LOG(LogTemp, Display, TEXT("[RaidCombat] %d enemies spawned in Room %d"), SpawnedCountNew, RoomIdNew);
             return;
         }
 
@@ -3795,6 +3922,7 @@ void URaidCombatSubsystem::SpawnEnemiesForRoom(ARaidRoomActor* Room)
     FVector Center = Room->GetActorLocation();
     float SpawnRadius = (Room->GridSize * Room->TileSize) / 2.0f - 200.0f;
     float AngleStep = 360.0f / FinalSpawnCount;
+    APawn* PrimaryPlayerPawn = GetPrimaryPlayerPawn();
 
     UNavigationSystemV1* NavSys = UNavigationSystemV1::GetCurrent(World);
 
@@ -3992,7 +4120,7 @@ void URaidCombatSubsystem::SpawnEnemiesForRoom(ARaidRoomActor* Room)
             const FVector SpawnedLoc = SpawnedEnemy->GetActorLocation();
             const double NowSeconds = World ? World->GetTimeSeconds() : 0.0;
             const double RecoveryGraceUntil = NowSeconds + FMath::Max(0.0f, (double)EnemyRecoverySpawnGraceSeconds);
-            const double ActivationTime = NowSeconds + FMath::Max(0.0f, EnemySearchStartDelay);
+            const double ActivationTime = ResolveEnemySearchActivationTime(Id, SpawnedLoc, NowSeconds, PrimaryPlayerPawn);
             EnemyLastKnownValidLocationByPawn.Add(WeakSpawnedEnemy, SpawnedLoc);
             EnemyStuckLastProgressLocationByPawn.Add(WeakSpawnedEnemy, SpawnedLoc);
             EnemyStuckLastProgressTimeByPawn.Add(WeakSpawnedEnemy, NowSeconds);
@@ -4004,6 +4132,7 @@ void URaidCombatSubsystem::SpawnEnemiesForRoom(ARaidRoomActor* Room)
             EnemySearchActivationTimeByPawn.Add(WeakSpawnedEnemy, ActivationTime);
             EnemySearchNextOrderTimeByPawn.Add(WeakSpawnedEnemy, ActivationTime + FMath::FRandRange(0.08, 0.55));
             SpawnedEnemy->OnDestroyed.AddDynamic(this, &URaidCombatSubsystem::OnEnemyDestroyed);
+            RaiseRoomCombatAlert(Id, NowSeconds);
             LogTrackedEnemyState(SpawnedEnemy, Id, TEXT("Spawned"));
         }
     }
@@ -4011,7 +4140,7 @@ void URaidCombatSubsystem::SpawnEnemiesForRoom(ARaidRoomActor* Room)
     if (SpawnedCount > 0)
     {
         AliveByRoomId.Add(Id, SpawnedCount);
-        UE_LOG(LogTemp, Warning, TEXT("[RaidCombat] %d Enemies spawned successfully in Room %d"), SpawnedCount, Id);
+        UE_LOG(LogTemp, Display, TEXT("[RaidCombat] %d Enemies spawned successfully in Room %d"), SpawnedCount, Id);
     }
     else
     {
@@ -4071,6 +4200,8 @@ void URaidCombatSubsystem::OnEnemyDestroyed(AActor* DestroyedActor)
     if (int32* RoomIdPtr = EnemyToRoomMap.Find(DestroyedActor))
     {
         const int32 RId = *RoomIdPtr;
+        const double NowSeconds = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+        RaiseRoomCombatAlert(RId, NowSeconds);
         if (IsValid(DestroyedActor))
         {
             if (bLogDropSoulLifecycle)

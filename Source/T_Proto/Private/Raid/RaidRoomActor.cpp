@@ -33,6 +33,8 @@
 #include "Kismet/GameplayStatics.h"
 #include "GameFramework/Character.h"
 #include "UObject/UnrealType.h"
+#include "HAL/PlatformMemory.h"
+#include "HAL/PlatformTime.h"
 #include "LandscapeProxy.h"
 #if WITH_EDITOR
 #include "LandscapeInfo.h"
@@ -382,6 +384,55 @@ namespace
         return static_cast<float>(Hash & 0x00FFFFFFu) / 16777216.0f;
     }
 
+    double BytesToMiB(const uint64 Bytes)
+    {
+        return static_cast<double>(Bytes) / (1024.0 * 1024.0);
+    }
+
+    bool ShouldSkipLandscapeFlattenForLowMemory(FPlatformMemoryStats& OutStats)
+    {
+        OutStats = FPlatformMemory::GetStats();
+        constexpr uint64 MinAvailablePhysicalBytes = 1024ull * 1024ull * 1024ull; // 1.0 GiB
+        constexpr uint64 MinAvailableVirtualBytes = 512ull * 1024ull * 1024ull;   // 0.5 GiB
+        return OutStats.AvailablePhysical < MinAvailablePhysicalBytes ||
+               OutStats.AvailableVirtual < MinAvailableVirtualBytes;
+    }
+
+    bool HasLandscapeFlattenMemoryBudget(
+        const uint64 RequiredWorkingBytes,
+        const uint64 SafetyReserveBytes,
+        FPlatformMemoryStats& OutStats)
+    {
+        OutStats = FPlatformMemory::GetStats();
+        if (RequiredWorkingBytes > (TNumericLimits<uint64>::Max() - SafetyReserveBytes))
+        {
+            return false;
+        }
+
+        const uint64 RequiredWithReserve = RequiredWorkingBytes + SafetyReserveBytes;
+        return OutStats.AvailablePhysical > RequiredWithReserve &&
+               OutStats.AvailableVirtual > RequiredWithReserve;
+    }
+
+    void LogLandscapeFlattenMemorySkip(const TCHAR* Reason, const FPlatformMemoryStats& Stats)
+    {
+        static double LastLogSeconds = -1000.0;
+        const double NowSeconds = FPlatformTime::Seconds();
+        if ((NowSeconds - LastLogSeconds) < 1.0)
+        {
+            return;
+        }
+
+        LastLogSeconds = NowSeconds;
+        UE_LOG(
+            LogTemp,
+            Warning,
+            TEXT("[RaidRoom][TerrainStabilize] Editor landscape flatten skipped (%s). AvailPhysical=%.1f MiB AvailVirtual=%.1f MiB"),
+            Reason,
+            BytesToMiB(Stats.AvailablePhysical),
+            BytesToMiB(Stats.AvailableVirtual));
+    }
+
     int32 ApplyEditorLandscapeFlattenBlob(
         UWorld* World,
         AActor* SplineOwner,
@@ -412,6 +463,13 @@ namespace
             return 0;
         }
 
+        FPlatformMemoryStats MemoryStats;
+        if (ShouldSkipLandscapeFlattenForLowMemory(MemoryStats))
+        {
+            LogLandscapeFlattenMemorySkip(TEXT("LowMemory"), MemoryStats);
+            return 0;
+        }
+
         const float SafeRadius = FMath::Clamp(FlattenRadius, 10.0f, 10000.0f);
         const float SafeFalloff = FMath::Clamp(SideFalloff, 0.0f, 6000.0f);
         const float SafeCliffRatio = FMath::Clamp(EdgeCliffRatio, 0.0f, 0.8f);
@@ -419,15 +477,52 @@ namespace
         const float SafePatchSize = FMath::Clamp(EdgePatchSize, 120.0f, 6000.0f);
         const float SafeErosionStrength = FMath::Clamp(EdgeErosionStrength, 0.0f, 1.0f);
         const float SafeSmoothStrength = FMath::Clamp(EdgeSmoothStrength, 0.0f, 1.0f);
+        const float EffectiveSmoothStrength = FMath::Clamp(SafeSmoothStrength * 1.35f + 0.45f, 0.0f, 1.0f);
+        // Keep cliff/erosion as subtle accents only; smooth remains dominant.
+        const float SubtleCliffInfluence = FMath::Clamp(
+            SafeCliffRatio * (1.0f - SafeSmoothStrength * 0.75f),
+            0.0f,
+            0.08f);
+        const float SubtleErosionInfluence = FMath::Clamp(
+            SafeErosionRatio * SafeErosionStrength * (1.0f - SafeSmoothStrength * 0.65f),
+            0.0f,
+            0.12f);
+        const float SubtleErosionJitterAmplitude = FMath::Clamp(SubtleErosionInfluence * 8.0f, 0.0f, 1.2f);
+        const float SpikeClampMinBase = FMath::Clamp(
+            5.0f + (1.0f - EffectiveSmoothStrength) * 10.0f,
+            5.0f,
+            14.0f);
+        const float SpikeClampMaxBase = FMath::Clamp(
+            14.0f + (1.0f - EffectiveSmoothStrength) * 20.0f,
+            14.0f,
+            34.0f);
         const float FlattenOuterRadius = SafeRadius + SafeFalloff;
-        // Keep the core plateau, but add an extra edge-only smoothing ring so the transition
-        // blends into surrounding terrain instead of ending in a cliff-like lip.
+        // Boundary-warp params: distort flatten perimeter itself so stamp-like circles disappear.
+        const float FlattenBoundaryNoisePatchSize = FMath::Clamp(SafePatchSize * 0.72f, 96.0f, 2600.0f);
+        const float FlattenBoundaryNoiseRadiusJitter = FMath::Clamp(
+            FMath::Max(SafeFalloff * 0.30f, SafeRadius * 0.14f),
+            60.0f,
+            1600.0f);
+        const float FlattenBoundaryNoiseStartRadius = SafeRadius + (SafeFalloff * 0.42f);
+        // Keep all deformation strictly outside flatten area so spawned objects inside
+        // the flattened zone are not perturbed by edge styling.
+        const float OuterOnlyStartOffset = FMath::Clamp(
+            FMath::Max(SafeFalloff * 0.09f, SafeRadius * 0.05f),
+            28.0f,
+            320.0f);
+        const float ProtectedCoreRadius = FMath::Max(SafeRadius + (SafeFalloff * 0.90f), SafeRadius + 75.0f);
+        // Stronger outside ring to hide circular flatten stamp from long distances.
         const float EdgeSmoothExtraRadius = FMath::Clamp(
-            FMath::Max(SafeFalloff * 0.8f, SafeRadius * 0.2f),
-            120.0f,
-            3000.0f);
-        const float EdgeSmoothInnerRadius = SafeRadius + (SafeFalloff * 0.5f);
-        const float EdgeSmoothOuterRadius = FlattenOuterRadius + EdgeSmoothExtraRadius;
+            FMath::Max(SafeFalloff * 1.45f, SafeRadius * 0.46f),
+            300.0f,
+            6000.0f);
+        const float EdgeSmoothInnerRadius = ProtectedCoreRadius;
+        const float EdgeSmoothOuterRadius = ProtectedCoreRadius + EdgeSmoothExtraRadius;
+        // Break perfect-circle artifacts on the transition ring with local radius jitter.
+        const float EdgeNoiseRadiusJitter = FMath::Clamp(
+            FMath::Max(SafeFalloff * 0.38f, SafeRadius * 0.19f),
+            80.0f,
+            2200.0f);
 
         if (SafeRadius <= KINDA_SMALL_NUMBER)
         {
@@ -511,6 +606,16 @@ namespace
             FLandscapeEditDataInterface LandscapeEdit(LandscapeInfo);
             const int32 Width = X2 - X1 + 1;
             const int32 Height = Y2 - Y1 + 1;
+            const uint64 HeightSampleCount = static_cast<uint64>(Width) * static_cast<uint64>(Height);
+            const uint64 EstimatedWorkingBytes = HeightSampleCount * sizeof(uint16) * 4ull;
+            constexpr uint64 FlattenSafetyReserveBytes = 256ull * 1024ull * 1024ull; // 256 MiB
+            FPlatformMemoryStats FlattenBudgetStats;
+            if (!HasLandscapeFlattenMemoryBudget(EstimatedWorkingBytes, FlattenSafetyReserveBytes, FlattenBudgetStats))
+            {
+                LogLandscapeFlattenMemorySkip(TEXT("InsufficientBudget"), FlattenBudgetStats);
+                continue;
+            }
+
             TArray<uint16> HeightData;
             HeightData.SetNumUninitialized(Width * Height);
             LandscapeEdit.GetHeightDataFast(X1, Y1, X2, Y2, HeightData.GetData(), 0);
@@ -526,15 +631,39 @@ namespace
                     const float DeltaWorldX = (static_cast<float>(LocalX) - LocalCenterX) * SafeScaleX;
                     const float DeltaWorldY = (static_cast<float>(LocalY) - LocalCenterY) * SafeScaleY;
                     const float DistanceWorld = FMath::Sqrt(DeltaWorldX * DeltaWorldX + DeltaWorldY * DeltaWorldY);
-                    if (DistanceWorld > FlattenOuterRadius)
+                    const float WorldX = Center.X + DeltaWorldX;
+                    const float WorldY = Center.Y + DeltaWorldY;
+                    const int32 BoundaryCellX = FMath::FloorToInt(WorldX / FlattenBoundaryNoisePatchSize);
+                    const int32 BoundaryCellY = FMath::FloorToInt(WorldY / FlattenBoundaryNoisePatchSize);
+                    const float BoundaryNoiseCoarse = HashCell01(BoundaryCellX, BoundaryCellY, 0x2A6D9F17u);
+                    const float BoundaryNoiseFine = HashCell01(LocalX, LocalY, 0x9A4E13C1u);
+                    const float BoundaryNoise = FMath::Lerp(BoundaryNoiseCoarse, BoundaryNoiseFine, 0.40f);
+                    const float AngleRad = FMath::Atan2(DeltaWorldY, DeltaWorldX);
+                    const float BoundaryAngularNoise =
+                        (FMath::Sin(AngleRad * 3.0f + (BoundaryNoiseCoarse * 2.0f * PI)) * 0.52f) +
+                        (FMath::Sin(AngleRad * 5.0f + (BoundaryNoiseFine * 2.0f * PI)) * 0.48f);
+                    float LocalFlattenOuterRadius = FlattenOuterRadius;
+                    if (DistanceWorld >= FlattenBoundaryNoiseStartRadius)
+                    {
+                        const float BoundaryShift =
+                            ((BoundaryNoise - 0.5f) * 2.0f * FlattenBoundaryNoiseRadiusJitter) +
+                            (BoundaryAngularNoise * FlattenBoundaryNoiseRadiusJitter * 0.16f);
+                        LocalFlattenOuterRadius += BoundaryShift;
+                    }
+                    LocalFlattenOuterRadius = FMath::Clamp(
+                        LocalFlattenOuterRadius,
+                        SafeRadius + 60.0f,
+                        FlattenOuterRadius + FlattenBoundaryNoiseRadiusJitter);
+                    if (DistanceWorld > LocalFlattenOuterRadius)
                     {
                         continue;
                     }
 
                     float BlendAlpha = 1.0f;
-                    if (DistanceWorld > SafeRadius && SafeFalloff > KINDA_SMALL_NUMBER)
+                    if (DistanceWorld > SafeRadius && LocalFlattenOuterRadius > SafeRadius + KINDA_SMALL_NUMBER)
                     {
-                        BlendAlpha = 1.0f - (DistanceWorld - SafeRadius) / SafeFalloff;
+                        const float LocalFalloffRadius = FMath::Max(LocalFlattenOuterRadius - SafeRadius, 1.0f);
+                        BlendAlpha = 1.0f - (DistanceWorld - SafeRadius) / LocalFalloffRadius;
                     }
                     BlendAlpha = FMath::Clamp(BlendAlpha, 0.0f, 1.0f);
                     BlendAlpha = BlendAlpha * BlendAlpha * (3.0f - 2.0f * BlendAlpha); // smoothstep
@@ -585,11 +714,112 @@ namespace
                 }
             }
 
+            // Secondary pass: smooth inside flattened area and the inner transition band
+            // so the interior/edge connection does not look like a hard circular stamp.
+            if (Width >= 3 && Height >= 3)
+            {
+                const float InnerSmoothStartRadius = FMath::Max(SafeRadius * 0.12f, 45.0f);
+                const float InnerSmoothEndRadius = FMath::Max(
+                    FlattenOuterRadius + (SafeFalloff * 0.30f),
+                    InnerSmoothStartRadius + 80.0f);
+                const float InnerSmoothWidth = FMath::Max(InnerSmoothEndRadius - InnerSmoothStartRadius, KINDA_SMALL_NUMBER);
+                const int32 InnerSmoothIterations = FMath::Clamp(
+                    FMath::RoundToInt(2.0f + SafeSmoothStrength * 3.0f),
+                    2,
+                    5);
+
+                for (int32 Iteration = 0; Iteration < InnerSmoothIterations; ++Iteration)
+                {
+                    const TArray<uint16> PrevHeightData = HeightData;
+                    bool bIterationChanged = false;
+
+                    for (int32 LocalY = Y1 + 1; LocalY <= Y2 - 1; ++LocalY)
+                    {
+                        for (int32 LocalX = X1 + 1; LocalX <= X2 - 1; ++LocalX)
+                        {
+                            const float DeltaWorldX = (static_cast<float>(LocalX) - LocalCenterX) * SafeScaleX;
+                            const float DeltaWorldY = (static_cast<float>(LocalY) - LocalCenterY) * SafeScaleY;
+                            const float DistanceWorld = FMath::Sqrt(DeltaWorldX * DeltaWorldX + DeltaWorldY * DeltaWorldY);
+                            if (DistanceWorld > InnerSmoothEndRadius)
+                            {
+                                continue;
+                            }
+
+                            const float BlendT = FMath::Clamp(
+                                (DistanceWorld - InnerSmoothStartRadius) / InnerSmoothWidth,
+                                0.0f,
+                                1.0f);
+                            float SmoothBandAlpha = 0.26f + BlendT * 0.60f;
+                            SmoothBandAlpha *= (0.70f + SafeSmoothStrength * 0.45f);
+                            SmoothBandAlpha = FMath::Clamp(SmoothBandAlpha, 0.0f, 1.0f);
+                            if (SmoothBandAlpha <= KINDA_SMALL_NUMBER)
+                            {
+                                continue;
+                            }
+
+                            const int32 DataIndex = (LocalY - Y1) * Width + (LocalX - X1);
+                            const int32 CurrentI = static_cast<int32>(PrevHeightData[DataIndex]);
+                            const int32 OriginalI = static_cast<int32>(OriginalHeightData[DataIndex]);
+
+                            int32 NeighborhoodSum = 0;
+                            for (int32 OffsetY = -1; OffsetY <= 1; ++OffsetY)
+                            {
+                                for (int32 OffsetX = -1; OffsetX <= 1; ++OffsetX)
+                                {
+                                    const int32 SampleIndex =
+                                        (LocalY + OffsetY - Y1) * Width + (LocalX + OffsetX - X1);
+                                    NeighborhoodSum += static_cast<int32>(PrevHeightData[SampleIndex]);
+                                }
+                            }
+                            const int32 NeighborAvgI = FMath::RoundToInt(static_cast<float>(NeighborhoodSum) / 9.0f);
+                            const int32 TargetI = FMath::RoundToInt(FMath::Lerp(
+                                static_cast<float>(NeighborAvgI),
+                                static_cast<float>(OriginalI),
+                                0.24f));
+
+                            int32 NewHeightI = FMath::RoundToInt(FMath::Lerp(
+                                static_cast<float>(CurrentI),
+                                static_cast<float>(TargetI),
+                                SmoothBandAlpha));
+
+                            const int32 ClampDelta = FMath::Max(6, FMath::RoundToInt(FMath::Lerp(12.0f, 24.0f, BlendT)));
+                            NewHeightI = FMath::Clamp(NewHeightI, NeighborAvgI - ClampDelta, NeighborAvgI + ClampDelta);
+
+                            if (!bRaiseHeights && NewHeightI > CurrentI)
+                            {
+                                NewHeightI = CurrentI;
+                            }
+                            if (!bLowerHeights && NewHeightI < CurrentI)
+                            {
+                                NewHeightI = CurrentI;
+                            }
+
+                            NewHeightI = FMath::Clamp(NewHeightI, 0, static_cast<int32>(LandscapeDataAccess::MaxValue));
+                            const uint16 NewHeight = static_cast<uint16>(NewHeightI);
+                            if (NewHeight != HeightData[DataIndex])
+                            {
+                                HeightData[DataIndex] = NewHeight;
+                                bIterationChanged = true;
+                                bChanged = true;
+                            }
+                        }
+                    }
+
+                    if (!bIterationChanged)
+                    {
+                        break;
+                    }
+                }
+            }
+
             const float EdgeSmoothWidth = FMath::Max(EdgeSmoothOuterRadius - EdgeSmoothInnerRadius, KINDA_SMALL_NUMBER);
             if (Width >= 3 && Height >= 3 && EdgeSmoothWidth > KINDA_SMALL_NUMBER)
             {
-                constexpr int32 SmoothingIterations = 2;
-                const float StrongSmoothBoost = 0.24f;
+                const int32 SmoothingIterations = FMath::Clamp(
+                    FMath::RoundToInt(11.0f + (SafeSmoothStrength * 6.0f)),
+                    12,
+                    18);
+                const float StrongSmoothBoost = 0.96f;
                 const int32 CenterCellX = FMath::FloorToInt(Center.X / SafePatchSize);
                 const int32 CenterCellY = FMath::FloorToInt(Center.Y / SafePatchSize);
                 const float AxisNoise = HashCell01(CenterCellX, CenterCellY, 0xB5297A4Du);
@@ -608,34 +838,63 @@ namespace
                             const float DeltaWorldX = (static_cast<float>(LocalX) - LocalCenterX) * SafeScaleX;
                             const float DeltaWorldY = (static_cast<float>(LocalY) - LocalCenterY) * SafeScaleY;
                             const float DistanceWorld = FMath::Sqrt(DeltaWorldX * DeltaWorldX + DeltaWorldY * DeltaWorldY);
-                            if (DistanceWorld < EdgeSmoothInnerRadius || DistanceWorld > EdgeSmoothOuterRadius)
-                            {
-                                continue;
-                            }
-
-                            const float BlendT = FMath::Clamp(
-                                (DistanceWorld - EdgeSmoothInnerRadius) / EdgeSmoothWidth,
-                                0.0f,
-                                1.0f);
-                            float SmoothAlpha = 1.0f - BlendT;
-                            SmoothAlpha = SmoothAlpha * SmoothAlpha * (3.0f - 2.0f * SmoothAlpha); // smoothstep
-                            if (SmoothAlpha <= KINDA_SMALL_NUMBER)
-                            {
-                                continue;
-                            }
-
                             const float WorldX = Center.X + DeltaWorldX;
                             const float WorldY = Center.Y + DeltaWorldY;
                             const int32 PatchX = FMath::FloorToInt(WorldX / SafePatchSize);
                             const int32 PatchY = FMath::FloorToInt(WorldY / SafePatchSize);
                             const float PatchStyleNoise = HashCell01(PatchX, PatchY, 0x68E31DA4u);
                             const float ErosionNoise = HashCell01(PatchX, PatchY, 0x1B56C4E9u);
-                            const float CliffThreshold = SafeCliffRatio;
-                            const float ErosionThreshold = SafeCliffRatio + SafeErosionRatio;
-
-                            if (PatchStyleNoise < CliffThreshold)
+                            const float RadiusNoiseCoarse = HashCell01(PatchX, PatchY, 0xD18A57F3u);
+                            const float RadiusNoiseFine = HashCell01(LocalX, LocalY, 0x7B64C18Du);
+                            const float RadiusNoise = FMath::Lerp(RadiusNoiseCoarse, RadiusNoiseFine, 0.35f);
+                            const float AngleRad = FMath::Atan2(DeltaWorldY, DeltaWorldX);
+                            const float AngularWobble =
+                                (FMath::Sin((AngleRad + AxisAngleRad) * 3.0f + (RadiusNoiseCoarse * 2.0f * PI)) * 0.50f) +
+                                (FMath::Sin((AngleRad - AxisAngleRad * 0.55f) * 5.0f + (RadiusNoiseFine * 2.0f * PI)) * 0.50f);
+                            const float LocalRadiusShift =
+                                ((RadiusNoise - 0.5f) * 2.0f * EdgeNoiseRadiusJitter) +
+                                (AngularWobble * EdgeNoiseRadiusJitter * 0.22f);
+                            const int32 BoundaryCellX = FMath::FloorToInt(WorldX / FlattenBoundaryNoisePatchSize);
+                            const int32 BoundaryCellY = FMath::FloorToInt(WorldY / FlattenBoundaryNoisePatchSize);
+                            const float BoundaryNoiseCoarse = HashCell01(BoundaryCellX, BoundaryCellY, 0x2A6D9F17u);
+                            const float BoundaryNoiseFine = HashCell01(LocalX, LocalY, 0x9A4E13C1u);
+                            const float BoundaryNoise = FMath::Lerp(BoundaryNoiseCoarse, BoundaryNoiseFine, 0.40f);
+                            const float BoundaryAngularNoise =
+                                (FMath::Sin((AngleRad + AxisAngleRad * 0.20f) * 3.0f + (BoundaryNoiseCoarse * 2.0f * PI)) * 0.52f) +
+                                (FMath::Sin((AngleRad - AxisAngleRad * 0.16f) * 5.0f + (BoundaryNoiseFine * 2.0f * PI)) * 0.48f);
+                            const float BoundaryShift =
+                                ((BoundaryNoise - 0.5f) * 2.0f * FlattenBoundaryNoiseRadiusJitter) +
+                                (BoundaryAngularNoise * FlattenBoundaryNoiseRadiusJitter * 0.16f);
+                            const float LocalFlattenOuterRadius = FMath::Clamp(
+                                FlattenOuterRadius + BoundaryShift,
+                                SafeRadius + 60.0f,
+                                FlattenOuterRadius + FlattenBoundaryNoiseRadiusJitter);
+                            const float LocalProtectedRadius = FMath::Max(
+                                ProtectedCoreRadius,
+                                LocalFlattenOuterRadius + (OuterOnlyStartOffset * 0.55f));
+                            const float LocalInnerRadius = FMath::Max(
+                                LocalProtectedRadius,
+                                EdgeSmoothInnerRadius + FMath::Max(0.0f, LocalRadiusShift * 0.09f));
+                            const float LocalOuterRadius = FMath::Max(
+                                LocalInnerRadius + 88.0f,
+                                EdgeSmoothOuterRadius + LocalRadiusShift);
+                            if (DistanceWorld < LocalInnerRadius || DistanceWorld > LocalOuterRadius)
                             {
-                                // Intentionally keep part of the edge abrupt for natural cliff-like variation.
+                                continue;
+                            }
+
+                            const float LocalEdgeWidth = FMath::Max(LocalOuterRadius - LocalInnerRadius, KINDA_SMALL_NUMBER);
+                            const float BlendT = FMath::Clamp(
+                                (DistanceWorld - LocalInnerRadius) / LocalEdgeWidth,
+                                0.0f,
+                                1.0f);
+                            float SmoothAlpha = 1.0f - BlendT;
+                            SmoothAlpha = SmoothAlpha * SmoothAlpha * (3.0f - 2.0f * SmoothAlpha); // smoothstep
+                            SmoothAlpha = FMath::Pow(SmoothAlpha, 0.40f);
+                            const float RingMidBoost = 1.0f - FMath::Abs((BlendT * 2.0f) - 1.0f);
+                            SmoothAlpha = FMath::Clamp(SmoothAlpha + RingMidBoost * 0.62f, 0.0f, 1.0f);
+                            if (SmoothAlpha <= KINDA_SMALL_NUMBER)
+                            {
                                 continue;
                             }
 
@@ -645,6 +904,8 @@ namespace
 
                             int32 NeighborhoodSum = 0;
                             int32 NeighborhoodMin = TNumericLimits<int32>::Max();
+                            int32 WideNeighborhoodSum = 0;
+                            int32 WideNeighborhoodCount = 0;
                             for (int32 OffsetY = -1; OffsetY <= 1; ++OffsetY)
                             {
                                 for (int32 OffsetX = -1; OffsetX <= 1; ++OffsetX)
@@ -656,50 +917,95 @@ namespace
                                     NeighborhoodMin = FMath::Min(NeighborhoodMin, SampleI);
                                 }
                             }
+                            for (int32 OffsetY = -2; OffsetY <= 2; ++OffsetY)
+                            {
+                                for (int32 OffsetX = -2; OffsetX <= 2; ++OffsetX)
+                                {
+                                    if (OffsetX == 0 && OffsetY == 0)
+                                    {
+                                        continue;
+                                    }
+                                    const int32 SampleLocalX = FMath::Clamp(LocalX + OffsetX, X1, X2);
+                                    const int32 SampleLocalY = FMath::Clamp(LocalY + OffsetY, Y1, Y2);
+                                    const int32 SampleIndex =
+                                        (SampleLocalY - Y1) * Width + (SampleLocalX - X1);
+                                    WideNeighborhoodSum += static_cast<int32>(PrevHeightData[SampleIndex]);
+                                    ++WideNeighborhoodCount;
+                                }
+                            }
 
                             const int32 NeighborAvgI = FMath::RoundToInt(static_cast<float>(NeighborhoodSum) / 9.0f);
+                            const int32 WideNeighborAvgI = WideNeighborhoodCount > 0
+                                ? FMath::RoundToInt(static_cast<float>(WideNeighborhoodSum) / static_cast<float>(WideNeighborhoodCount))
+                                : NeighborAvgI;
                             const FVector2D RadialDir = FVector2D(DeltaWorldX, DeltaWorldY).GetSafeNormal();
                             const float AxisAlignment = FMath::Abs(FVector2D::DotProduct(RadialDir, PrimaryAxis));
                             const bool bStrongSmoothZone = AxisAlignment >= 0.72f;
 
-                            bool bUseErosion = PatchStyleNoise < ErosionThreshold;
-                            int32 BlendTargetI = 0;
-                            float StyleStrength = 0.0f;
-                            if (bUseErosion)
+                            const float StyleNoise = FMath::Lerp(PatchStyleNoise, RadiusNoise, 0.22f);
+                            const float CliffBandThreshold = FMath::Clamp(SubtleCliffInfluence * 2.6f, 0.0f, 0.18f);
+                            const float ErosionBandThreshold = FMath::Clamp(
+                                CliffBandThreshold + (SubtleErosionInfluence * 2.2f),
+                                CliffBandThreshold,
+                                0.32f);
+                            const bool bUseCliff = (BlendT > 0.86f) && (StyleNoise < CliffBandThreshold);
+                            const bool bUseErosion = !bUseCliff && (StyleNoise < ErosionBandThreshold);
+
+                            const int32 SmoothTargetI = FMath::RoundToInt(FMath::Lerp(
+                                static_cast<float>(WideNeighborAvgI),
+                                static_cast<float>(OriginalI),
+                                0.36f));
+                            int32 BlendTargetI = SmoothTargetI;
+                            float StyleStrength = EffectiveSmoothStrength + (bStrongSmoothZone ? StrongSmoothBoost : 0.58f);
+                            if (bUseCliff)
                             {
-                                // Erosion-like blend: pull toward local min + average, then fuse with original terrain.
-                                const int32 ErosionBaseI = FMath::RoundToInt(FMath::Lerp(
+                                const int32 CliffNeighborI = FMath::RoundToInt(FMath::Lerp(
                                     static_cast<float>(NeighborAvgI),
-                                    static_cast<float>(NeighborhoodMin),
-                                    0.40f));
+                                    static_cast<float>(WideNeighborAvgI),
+                                    0.35f));
                                 BlendTargetI = FMath::RoundToInt(FMath::Lerp(
-                                    static_cast<float>(ErosionBaseI),
-                                    static_cast<float>(OriginalI),
-                                    0.18f));
-                                StyleStrength = SafeErosionStrength;
+                                    static_cast<float>(SmoothTargetI),
+                                    static_cast<float>(CliffNeighborI),
+                                    0.25f));
+                                StyleStrength *= FMath::Clamp(0.35f + (SubtleCliffInfluence * 2.8f), 0.20f, 0.45f);
                             }
-                            else
+                            else if (bUseErosion)
                             {
-                                // Strong smooth zone: preserve continuity lines from flattened area to outer terrain.
+                                const int32 ErosionBaseI = FMath::RoundToInt(FMath::Lerp(
+                                    static_cast<float>(WideNeighborAvgI),
+                                    static_cast<float>(NeighborhoodMin),
+                                    0.22f));
                                 BlendTargetI = FMath::RoundToInt(FMath::Lerp(
-                                    static_cast<float>(NeighborAvgI),
-                                    static_cast<float>(OriginalI),
-                                    0.44f));
-                                StyleStrength = SafeSmoothStrength + (bStrongSmoothZone ? StrongSmoothBoost : 0.0f);
+                                    static_cast<float>(SmoothTargetI),
+                                    static_cast<float>(ErosionBaseI),
+                                    0.32f));
+                                StyleStrength *= FMath::Clamp(0.40f + (SubtleErosionInfluence * 2.6f), 0.25f, 0.55f);
                             }
 
                             StyleStrength = FMath::Clamp(StyleStrength, 0.0f, 1.0f);
+                            const float EffectiveBlend = FMath::Clamp(
+                                StyleStrength * (0.88f + FMath::Pow(SmoothAlpha, 0.40f)),
+                                0.0f,
+                                1.0f);
 
                             int32 NewHeightI = FMath::RoundToInt(FMath::Lerp(
                                 static_cast<float>(CurrentI),
                                 static_cast<float>(BlendTargetI),
-                                StyleStrength * SmoothAlpha));
+                                EffectiveBlend));
 
-                            if (bUseErosion)
+                            if (bUseErosion && SubtleErosionJitterAmplitude > KINDA_SMALL_NUMBER)
                             {
-                                const float ErosionJitter = (ErosionNoise - 0.5f) * 6.0f * SmoothAlpha;
+                                const float ErosionJitter = (ErosionNoise - 0.5f) * SubtleErosionJitterAmplitude * SmoothAlpha;
                                 NewHeightI += FMath::RoundToInt(ErosionJitter);
                             }
+
+                            // Hard safety clamp against local outlier spikes on the boundary ring.
+                            const int32 MaxDeltaToWide = FMath::Max(
+                                5,
+                                FMath::RoundToInt(FMath::Lerp(SpikeClampMinBase, SpikeClampMaxBase, BlendT)));
+                            const int32 MinAllowedI = WideNeighborAvgI - MaxDeltaToWide;
+                            const int32 MaxAllowedI = WideNeighborAvgI + MaxDeltaToWide;
+                            NewHeightI = FMath::Clamp(NewHeightI, MinAllowedI, MaxAllowedI);
 
                             if (!bRaiseHeights && NewHeightI > CurrentI)
                             {
@@ -3128,7 +3434,7 @@ AActor* ARaidRoomActor::AddMeshInstance(const FMeshVariation& Variation, const F
                 : Variation.BlueprintPrefab.ToString();
             UE_LOG(
                 LogTemp,
-                Warning,
+                Display,
                 TEXT("[RaidRoom][OffsetDebug] MeshType=%d Asset=%s AuthorOffsetZ=%.2f ResolvedDeltaZ=%.2f AppliedDeltaZ=%.2f"),
                 MeshType,
                 *AssetPath,
@@ -3309,6 +3615,30 @@ AActor* ARaidRoomActor::AddMeshInstance(const FMeshVariation& Variation, const F
                     SupportNormalCount,
                     SupportGroundZ,
                     SupportHeightRange);
+
+                const int32 SupportSampleTotal = FMath::Max(1, GroundSupportOffsets.Num());
+                const float SupportHitRatio = static_cast<float>(SupportHeights.Num()) / static_cast<float>(SupportSampleTotal);
+                const FVector EffectiveSupportNormal = (SupportNormalCount > 0)
+                    ? SupportNormalAccum.GetSafeNormal()
+                    : CenterGroundHit.ImpactNormal.GetSafeNormal();
+                const float SupportNormalZ = FMath::Clamp(EffectiveSupportNormal.Z, -1.0f, 1.0f);
+                const float SupportSlopeDeg = FMath::RadiansToDegrees(FMath::Acos(SupportNormalZ));
+
+                // Foliage/tree-like placements become visually broken on steep or narrow edge zones.
+                // Reject those candidates early so only plausible terrain gets populated.
+                const bool bFoliageLikeGroundCandidate = (MeshType == 6 || MeshType == 7 || MeshType == 8);
+                if (bFoliageLikeGroundCandidate)
+                {
+                    constexpr float MaxAllowedSlopeDeg = 52.0f;
+                    constexpr float MaxAllowedHeightRange = 170.0f;
+                    constexpr float MinAllowedSupportHitRatio = 0.66f;
+                    if (SupportSlopeDeg > MaxAllowedSlopeDeg ||
+                        SupportHeightRange > MaxAllowedHeightRange ||
+                        SupportHitRatio < MinAllowedSupportHitRatio)
+                    {
+                        return nullptr;
+                    }
+                }
 
 #if WITH_EDITOR
                 if (bEnableEditorLandscapeFlattenForMarkedVariations &&
@@ -4182,32 +4512,29 @@ AActor* ARaidRoomActor::AddMeshInstance(const FMeshVariation& Variation, const F
                         SpawnedObstacleFootprints.Add(FinalFootprint);
                     }
                 }
-                if (bShouldTryGroundSnap && bHasGroundHitForSnap)
-                {
-                    const bool bFoliageLikeMeshType = (MeshType == 6 || MeshType == 7 || MeshType == 8);
-                    const float BaseLocalZContribution = bFoliageLikeMeshType
-                        ? FMath::Clamp(BaseTransform.GetLocation().Z, -4000.0f, 4000.0f)
-                        : 0.0f;
-                    const float ClampedVariationDeltaLocalZ = FMath::Clamp(VariationDeltaLocalZ, -20000.0f, 20000.0f);
-                    const float EffectiveVariationDeltaLocalZ = bFoliageLikeMeshType
-                        ? FMath::Min(0.0f, ClampedVariationDeltaLocalZ)
-                        : ClampedVariationDeltaLocalZ;
+                const bool bFoliageLikeMeshType = (MeshType == 6 || MeshType == 7 || MeshType == 8);
+                const float BaseLocalZContribution = bFoliageLikeMeshType
+                    ? FMath::Clamp(BaseTransform.GetLocation().Z, -4000.0f, 4000.0f)
+                    : 0.0f;
+                const float ClampedVariationDeltaLocalZ = FMath::Clamp(VariationDeltaLocalZ, -20000.0f, 20000.0f);
+                const float EffectiveVariationDeltaLocalZ = bFoliageLikeMeshType
+                    ? FMath::Min(0.0f, ClampedVariationDeltaLocalZ)
+                    : ClampedVariationDeltaLocalZ;
 
-                    FPendingBlueprintTerrainPlacement PendingPlacement;
-                    PendingPlacement.Actor = SpawnedActor;
-                    PendingPlacement.MeshType = MeshType;
-                    PendingPlacement.BaseLocalZContribution = BaseLocalZContribution;
-                    PendingPlacement.EffectiveVariationDeltaLocalZ = EffectiveVariationDeltaLocalZ;
-                    PendingPlacement.bFlattenLandscapeUnderSpawn = Variation.bFlattenLandscapeUnderSpawn;
-                    PendingPlacement.bFlattenAppliedInSpawnPass = bBlueprintFlattenAppliedInSpawnPass;
-                    PendingPlacement.bGroundHitOnLandscape = bGroundHitOnLandscape;
-                    PendingPlacement.FlattenRadius = Variation.FlattenRadius;
-                    PendingPlacement.FlattenSmoothFalloff = Variation.FlattenSmoothFalloff;
-                    PendingPlacement.FlattenHeightOffset = Variation.FlattenHeightOffset;
-                    PendingPlacement.bFlattenRaiseHeights = Variation.bFlattenRaiseHeights;
-                    PendingPlacement.bFlattenLowerHeights = Variation.bFlattenLowerHeights;
-                    PendingBlueprintTerrainPlacements.Add(PendingPlacement);
-                }
+                FPendingBlueprintTerrainPlacement PendingPlacement;
+                PendingPlacement.Actor = SpawnedActor;
+                PendingPlacement.MeshType = MeshType;
+                PendingPlacement.BaseLocalZContribution = BaseLocalZContribution;
+                PendingPlacement.EffectiveVariationDeltaLocalZ = EffectiveVariationDeltaLocalZ;
+                PendingPlacement.bFlattenLandscapeUnderSpawn = Variation.bFlattenLandscapeUnderSpawn;
+                PendingPlacement.bFlattenAppliedInSpawnPass = bBlueprintFlattenAppliedInSpawnPass;
+                PendingPlacement.bGroundHitOnLandscape = bGroundHitOnLandscape && bHasGroundHitForSnap;
+                PendingPlacement.FlattenRadius = Variation.FlattenRadius;
+                PendingPlacement.FlattenSmoothFalloff = Variation.FlattenSmoothFalloff;
+                PendingPlacement.FlattenHeightOffset = Variation.FlattenHeightOffset;
+                PendingPlacement.bFlattenRaiseHeights = Variation.bFlattenRaiseHeights;
+                PendingPlacement.bFlattenLowerHeights = Variation.bFlattenLowerHeights;
+                PendingBlueprintTerrainPlacements.Add(PendingPlacement);
 
                 SpawnedDynamicActors.Add(SpawnedActor);
                 return SpawnedActor;
@@ -4460,6 +4787,9 @@ void ARaidRoomActor::RunBlueprintTerrainStabilizationPass()
     int32 FlattenOverlapSkipCount = 0;
     int32 NoGroundCount = 0;
     int32 NoLandscapeCount = 0;
+    int32 BlueprintOverlapResolvedCount = 0;
+    int32 BlueprintOverlapUnresolvedCount = 0;
+    int32 BlueprintOverlapCulledCount = 0;
     TSet<int32> PreFlattenAppliedPendingIndices;
 
     auto ResolveMedianSupportGround =
@@ -4547,6 +4877,89 @@ void ARaidRoomActor::RunBlueprintTerrainStabilizationPass()
             return true;
         };
 
+    auto MeasureFootprintGroundSupportQuality =
+        [this, World](
+            AActor* Actor,
+            const FBox2D& ActorFootprint,
+            float& OutHitRatio,
+            float& OutHeightRange) -> bool
+        {
+            OutHitRatio = 0.0f;
+            OutHeightRange = 0.0f;
+            if (!IsValid(Actor))
+            {
+                return false;
+            }
+
+            const FVector ActorLocation = Actor->GetActorLocation();
+            const FVector2D Center2D = ActorFootprint.bIsValid
+                ? (ActorFootprint.Min + ActorFootprint.Max) * 0.5f
+                : FVector2D(ActorLocation.X, ActorLocation.Y);
+            const FVector2D Half2D = ActorFootprint.bIsValid
+                ? (ActorFootprint.Max - ActorFootprint.Min) * 0.5f
+                : FVector2D(220.0f, 220.0f);
+            const FVector2D ClampedHalf(
+                FMath::Max(30.0f, Half2D.X),
+                FMath::Max(30.0f, Half2D.Y));
+
+            static const FVector2D LocalSamples[] =
+            {
+                FVector2D(0.0f, 0.0f),
+                FVector2D(1.0f, 0.0f),
+                FVector2D(-1.0f, 0.0f),
+                FVector2D(0.0f, 1.0f),
+                FVector2D(0.0f, -1.0f),
+                FVector2D(1.0f, 1.0f),
+                FVector2D(-1.0f, 1.0f),
+                FVector2D(1.0f, -1.0f),
+                FVector2D(-1.0f, -1.0f)
+            };
+
+            FCollisionQueryParams GroundQueryParams(SCENE_QUERY_STAT(RaidRoomTerrainSupportQuality), false);
+            GroundQueryParams.bTraceComplex = false;
+            GroundQueryParams.AddIgnoredActor(this);
+            GroundQueryParams.AddIgnoredActor(Actor);
+            for (const TObjectPtr<AActor>& ExistingActor : SpawnedDynamicActors)
+            {
+                if (IsValid(ExistingActor))
+                {
+                    GroundQueryParams.AddIgnoredActor(ExistingActor);
+                }
+            }
+            for (const TObjectPtr<AActor>& DoorActor : SpawnedDoorActors)
+            {
+                if (IsValid(DoorActor))
+                {
+                    GroundQueryParams.AddIgnoredActor(DoorActor);
+                }
+            }
+
+            int32 HitCount = 0;
+            float MinZ = TNumericLimits<float>::Max();
+            float MaxZ = -TNumericLimits<float>::Max();
+            for (const FVector2D& LocalSample : LocalSamples)
+            {
+                const FVector2D Sample2D = Center2D + FVector2D(LocalSample.X * ClampedHalf.X, LocalSample.Y * ClampedHalf.Y);
+                const FVector QueryPoint(Sample2D.X, Sample2D.Y, ActorLocation.Z);
+                FHitResult GroundHit;
+                if (TryResolveRoomSingleGroundHitAtPoint(World, QueryPoint, true, GroundQueryParams, GroundHit))
+                {
+                    ++HitCount;
+                    MinZ = FMath::Min(MinZ, GroundHit.ImpactPoint.Z);
+                    MaxZ = FMath::Max(MaxZ, GroundHit.ImpactPoint.Z);
+                }
+            }
+
+            OutHitRatio = static_cast<float>(HitCount) / static_cast<float>(UE_ARRAY_COUNT(LocalSamples));
+            if (HitCount > 0 && MinZ < TNumericLimits<float>::Max() && MaxZ > -TNumericLimits<float>::Max())
+            {
+                OutHeightRange = FMath::Max(0.0f, MaxZ - MinZ);
+                return true;
+            }
+
+            return false;
+        };
+
     auto ResolveFlattenRadiusAndFalloff =
         [this](const FPendingBlueprintTerrainPlacement& Pending, const FBox2D& ActorFootprint, float& OutRadius, float& OutFalloff)
         {
@@ -4566,10 +4979,14 @@ void ARaidRoomActor::RunBlueprintTerrainStabilizationPass()
 
             if (ActorFootprint.bIsValid)
             {
+                const FVector2D FootprintExtent = (ActorFootprint.Max - ActorFootprint.Min) * 0.5f;
+                const float FootprintDiagRadius = FootprintExtent.Size();
                 const float CoverageRadius = ResolveCoverageRadiusFromFootprint(
                     ActorFootprint,
-                    EditorLandscapeFlattenFootprintCoverageScale);
+                    EditorLandscapeFlattenFootprintCoverageScale + 0.12f);
                 FlattenRadius = FMath::Max(FlattenRadius, CoverageRadius);
+                const float ExtraFootprintMargin = FMath::Clamp(FootprintDiagRadius * 0.10f, 40.0f, 260.0f);
+                FlattenRadius += ExtraFootprintMargin;
             }
 
             FlattenRadius += FMath::Max(0.0f, EditorLandscapeFlattenExtraMargin);
@@ -4582,6 +4999,85 @@ void ARaidRoomActor::RunBlueprintTerrainStabilizationPass()
 
             OutRadius = FlattenRadius;
             OutFalloff = FlattenFalloff;
+        };
+
+    auto ConstrainFootprintInsideRoomBounds =
+        [this](AActor* Actor, FBox2D& InOutFootprint) -> bool
+        {
+            if (!IsValid(Actor) || !InOutFootprint.bIsValid)
+            {
+                return false;
+            }
+
+            const FVector RoomExtent3D = GetRoomExtent();
+            if (RoomExtent3D.X <= KINDA_SMALL_NUMBER || RoomExtent3D.Y <= KINDA_SMALL_NUMBER)
+            {
+                return false;
+            }
+
+            const FVector RoomCenter3D = GetActorLocation();
+            const FVector2D RoomCenter(RoomCenter3D.X, RoomCenter3D.Y);
+            const float RoomInset = FMath::Clamp(FMath::Min(RoomExtent3D.X, RoomExtent3D.Y) * 0.07f, 120.0f, 900.0f);
+            const float MinX = RoomCenter.X - RoomExtent3D.X + RoomInset;
+            const float MaxX = RoomCenter.X + RoomExtent3D.X - RoomInset;
+            const float MinY = RoomCenter.Y - RoomExtent3D.Y + RoomInset;
+            const float MaxY = RoomCenter.Y + RoomExtent3D.Y - RoomInset;
+            const float AllowedWidthX = FMath::Max(1.0f, MaxX - MinX);
+            const float AllowedWidthY = FMath::Max(1.0f, MaxY - MinY);
+            const float FootprintWidthX = InOutFootprint.Max.X - InOutFootprint.Min.X;
+            const float FootprintWidthY = InOutFootprint.Max.Y - InOutFootprint.Min.Y;
+
+            float ShiftX = 0.0f;
+            float ShiftY = 0.0f;
+            if (FootprintWidthX >= AllowedWidthX)
+            {
+                ShiftX = RoomCenter.X - InOutFootprint.GetCenter().X;
+            }
+            else if (InOutFootprint.Min.X < MinX)
+            {
+                ShiftX = MinX - InOutFootprint.Min.X;
+            }
+            else if (InOutFootprint.Max.X > MaxX)
+            {
+                ShiftX = MaxX - InOutFootprint.Max.X;
+            }
+
+            if (FootprintWidthY >= AllowedWidthY)
+            {
+                ShiftY = RoomCenter.Y - InOutFootprint.GetCenter().Y;
+            }
+            else if (InOutFootprint.Min.Y < MinY)
+            {
+                ShiftY = MinY - InOutFootprint.Min.Y;
+            }
+            else if (InOutFootprint.Max.Y > MaxY)
+            {
+                ShiftY = MaxY - InOutFootprint.Max.Y;
+            }
+
+            if (FMath::IsNearlyZero(ShiftX, 0.5f) && FMath::IsNearlyZero(ShiftY, 0.5f))
+            {
+                return false;
+            }
+
+            FVector ActorLocation = Actor->GetActorLocation();
+            ActorLocation.X += ShiftX;
+            ActorLocation.Y += ShiftY;
+            Actor->SetActorLocation(ActorLocation, false, nullptr, ETeleportType::TeleportPhysics);
+            InOutFootprint.Min += FVector2D(ShiftX, ShiftY);
+            InOutFootprint.Max += FVector2D(ShiftX, ShiftY);
+            if (bLogEditorLandscapeFlatten)
+            {
+                UE_LOG(
+                    LogTemp,
+                    Display,
+                    TEXT("[RaidRoom][TerrainStabilize][RoomClamp] Node=%d Actor=%s Shift=(%.1f,%.1f)"),
+                    NodeId,
+                    *GetNameSafe(Actor),
+                    ShiftX,
+                    ShiftY);
+            }
+            return true;
         };
 
 #if WITH_EDITOR
@@ -4619,6 +5115,20 @@ void ARaidRoomActor::RunBlueprintTerrainStabilizationPass()
 
             FBox2D CandidateFootprint(EForceInit::ForceInit);
             TryBuildFootprintFromActor(CandidateActor, CandidateFootprint);
+            if (!CandidateFootprint.bIsValid)
+            {
+                const FBox ActorBounds = CandidateActor->GetComponentsBoundingBox(true);
+                if (ActorBounds.IsValid)
+                {
+                    CandidateFootprint = FBox2D(
+                        FVector2D(ActorBounds.Min.X, ActorBounds.Min.Y),
+                        FVector2D(ActorBounds.Max.X, ActorBounds.Max.Y));
+                }
+            }
+            if (ConstrainFootprintInsideRoomBounds(CandidateActor, CandidateFootprint))
+            {
+                ++CorrectedCount;
+            }
 
             float CandidateGroundZ = CandidateActor->GetActorLocation().Z;
             bool bCandidateLandscapeCenter = Pending.bGroundHitOnLandscape;
@@ -4943,6 +5453,20 @@ void ARaidRoomActor::RunBlueprintTerrainStabilizationPass()
 
         FBox2D ActorFootprint(EForceInit::ForceInit);
         TryBuildFootprintFromActor(Actor, ActorFootprint);
+        if (!ActorFootprint.bIsValid)
+        {
+            const FBox ActorBounds = Actor->GetComponentsBoundingBox(true);
+            if (ActorBounds.IsValid)
+            {
+                ActorFootprint = FBox2D(
+                    FVector2D(ActorBounds.Min.X, ActorBounds.Min.Y),
+                    FVector2D(ActorBounds.Max.X, ActorBounds.Max.Y));
+            }
+        }
+        if (ConstrainFootprintInsideRoomBounds(Actor, ActorFootprint))
+        {
+            ++CorrectedCount;
+        }
 
         float SupportGroundZ = Actor->GetActorLocation().Z;
         bool bLandscapeAtCenter = Pending.bGroundHitOnLandscape;
@@ -5110,6 +5634,75 @@ void ARaidRoomActor::RunBlueprintTerrainStabilizationPass()
                     {
                         SupportGroundZ = RefreshedGroundZ;
                     }
+
+                    // Coverage safety pass: if large blueprint footprints still sit on sharp terrain
+                    // after flatten, expand once to avoid partial out-of-flatten protrusion.
+                    float SupportHitRatio = 1.0f;
+                    float SupportHeightRange = 0.0f;
+                    if (ActorFootprint.bIsValid &&
+                        MeasureFootprintGroundSupportQuality(Actor, ActorFootprint, SupportHitRatio, SupportHeightRange) &&
+                        (EditorLandscapeFlattenMaxOpsPerRoom <= 0 || EditorLandscapeFlattenOpsApplied < EditorLandscapeFlattenMaxOpsPerRoom))
+                    {
+                        const float HeightRangeThreshold = FMath::Max(EditorLandscapeFlattenMinHeightRange * 2.2f, 90.0f);
+                        const float HitRatioThreshold = 0.72f;
+                        const bool bNeedsExpandedCoverage =
+                            SupportHeightRange > HeightRangeThreshold ||
+                            SupportHitRatio < HitRatioThreshold;
+                        if (bNeedsExpandedCoverage)
+                        {
+                            const float MinCoverageRadius = FMath::Max(
+                                180.0f,
+                                ResolveCoverageRadiusFromFootprint(ActorFootprint, EditorLandscapeFlattenFootprintCoverageScale * 1.18f));
+                            const float ExpandedRadius = FMath::Clamp(
+                                FMath::Max(FlattenRadius * 1.28f, MinCoverageRadius),
+                                FlattenRadius + 80.0f,
+                                10000.0f);
+                            if (ExpandedRadius > FlattenRadius + KINDA_SMALL_NUMBER)
+                            {
+                                const int32 ExpandedLandscapeCount = ApplyEditorLandscapeFlattenBlob(
+                                    World,
+                                    this,
+                                    FVector(FlattenCenter2D.X, FlattenCenter2D.Y, TargetFlattenZ),
+                                    Actor->GetActorRotation().Yaw,
+                                    ExpandedRadius,
+                                    FlattenFalloff,
+                                    TargetFlattenZ,
+                                    Pending.bFlattenRaiseHeights,
+                                    Pending.bFlattenLowerHeights,
+                                    EditorLandscapeFlattenEdgeCliffRatio,
+                                    EditorLandscapeFlattenEdgeErosionRatio,
+                                    EditorLandscapeFlattenEdgePatchSize,
+                                    EditorLandscapeFlattenEdgeErosionStrength,
+                                    EditorLandscapeFlattenEdgeSmoothStrength);
+                                if (ExpandedLandscapeCount > 0)
+                                {
+                                    ++EditorLandscapeFlattenOpsApplied;
+                                    ++FlattenAppliedCount;
+                                    if (bLogEditorLandscapeFlatten)
+                                    {
+                                        UE_LOG(
+                                            LogTemp,
+                                            Warning,
+                                            TEXT("[RaidRoom][TerrainFlatten] Node=%d MeshType=%d Reason=BlueprintCoverageExpand Radius=%.1f Falloff=%.1f HeightRange=%.1f HitRatio=%.2f Landscapes=%d"),
+                                            NodeId,
+                                            Pending.MeshType,
+                                            ExpandedRadius,
+                                            FlattenFalloff,
+                                            SupportHeightRange,
+                                            SupportHitRatio,
+                                            ExpandedLandscapeCount);
+                                    }
+
+                                    bool bExpandedRefreshedLandscape = false;
+                                    float ExpandedRefreshedGroundZ = SupportGroundZ;
+                                    if (ResolveMedianSupportGround(Actor, ActorFootprint, ExpandedRefreshedGroundZ, bExpandedRefreshedLandscape))
+                                    {
+                                        SupportGroundZ = ExpandedRefreshedGroundZ;
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -5150,17 +5743,215 @@ void ARaidRoomActor::RunBlueprintTerrainStabilizationPass()
         }
     }
 
+    auto BuildActorFootprintWithFallback =
+        [](AActor* Actor, FBox2D& OutFootprint) -> bool
+        {
+            OutFootprint = FBox2D(EForceInit::ForceInit);
+            if (!IsValid(Actor))
+            {
+                return false;
+            }
+
+            if (TryBuildFootprintFromActor(Actor, OutFootprint) && OutFootprint.bIsValid)
+            {
+                return true;
+            }
+
+            const FBox ActorBounds = Actor->GetComponentsBoundingBox(true);
+            if (ActorBounds.IsValid)
+            {
+                OutFootprint = FBox2D(
+                    FVector2D(ActorBounds.Min.X, ActorBounds.Min.Y),
+                    FVector2D(ActorBounds.Max.X, ActorBounds.Max.Y));
+                return OutFootprint.bIsValid;
+            }
+
+            return false;
+        };
+
+    auto ResolveBlueprintSeparationPadding =
+        [this](int32 MeshType) -> float
+        {
+            if (MeshType == 2)
+            {
+                return FMath::Clamp(BlueprintObstacleMinSpacing * 0.18f, 80.0f, 360.0f);
+            }
+            if (MeshType == 3)
+            {
+                return FMath::Clamp(BlueprintDecorationMinSpacing * 0.14f, 60.0f, 280.0f);
+            }
+            if (MeshType == 6 || MeshType == 7 || MeshType == 8)
+            {
+                return FMath::Clamp(BlueprintDecorationMinSpacing * 0.10f, 40.0f, 180.0f);
+            }
+            return FMath::Clamp(ObstacleMinSpacing * 0.14f, 50.0f, 220.0f);
+        };
+
+    // Final blueprint de-overlap pass: terrain/room-bound corrections can re-introduce XY overlap.
+    // Re-separate actors in-place and re-snap Z to support ground so overlap does not remain visible.
+    {
+        constexpr int32 MaxSeparationPasses = 4;
+        constexpr int32 MaxRepositionAttemptsPerActor = 28;
+        TArray<FBox2D> AcceptedFootprints;
+        AcceptedFootprints.Reserve(PendingBlueprintTerrainPlacements.Num());
+
+        for (int32 PassIndex = 0; PassIndex < MaxSeparationPasses; ++PassIndex)
+        {
+            bool bAnyActorMovedThisPass = false;
+            AcceptedFootprints.Reset();
+
+            for (int32 PendingIndex = 0; PendingIndex < PendingBlueprintTerrainPlacements.Num(); ++PendingIndex)
+            {
+                FPendingBlueprintTerrainPlacement& Pending = PendingBlueprintTerrainPlacements[PendingIndex];
+                AActor* Actor = Pending.Actor.Get();
+                if (!IsValid(Actor))
+                {
+                    continue;
+                }
+
+                FBox2D ActorFootprint(EForceInit::ForceInit);
+                if (!BuildActorFootprintWithFallback(Actor, ActorFootprint))
+                {
+                    continue;
+                }
+
+                const float SeparationPadding = ResolveBlueprintSeparationPadding(Pending.MeshType);
+                const float HardPadding = 0.0f;
+                const bool bOverlapsPriorFootprints =
+                    IsFootprintOverlappingAny(AcceptedFootprints, ActorFootprint, SeparationPadding);
+                if (!bOverlapsPriorFootprints)
+                {
+                    AcceptedFootprints.Add(ActorFootprint);
+                    continue;
+                }
+
+                const FVector OriginalLocation = Actor->GetActorLocation();
+                bool bResolved = false;
+                for (int32 PhaseIndex = 0; PhaseIndex < 2 && !bResolved; ++PhaseIndex)
+                {
+                    const float CheckPadding = (PhaseIndex == 0) ? SeparationPadding : HardPadding;
+
+                    for (int32 AttemptIndex = 0; AttemptIndex < MaxRepositionAttemptsPerActor; ++AttemptIndex)
+                    {
+                        const float T = static_cast<float>(AttemptIndex + 1) / static_cast<float>(MaxRepositionAttemptsPerActor);
+                        const float Angle =
+                            ((static_cast<float>(AttemptIndex) * 2.39996323f) + (static_cast<float>(PassIndex) * 0.47f));
+                        const float Radius =
+                            FMath::Max(90.0f, SeparationPadding * 0.45f) +
+                            (T * T) * FMath::Max(1400.0f, SeparationPadding * 6.0f);
+
+                        FVector CandidateLocation = OriginalLocation;
+                        CandidateLocation.X += FMath::Cos(Angle) * Radius;
+                        CandidateLocation.Y += FMath::Sin(Angle) * Radius;
+                        Actor->SetActorLocation(CandidateLocation, false, nullptr, ETeleportType::TeleportPhysics);
+
+                        FBox2D CandidateFootprint(EForceInit::ForceInit);
+                        if (!BuildActorFootprintWithFallback(Actor, CandidateFootprint))
+                        {
+                            continue;
+                        }
+
+                        if (ConstrainFootprintInsideRoomBounds(Actor, CandidateFootprint))
+                        {
+                            ++CorrectedCount;
+                            if (!BuildActorFootprintWithFallback(Actor, CandidateFootprint))
+                            {
+                                continue;
+                            }
+                        }
+
+                        if (IsFootprintOverlappingAny(AcceptedFootprints, CandidateFootprint, CheckPadding))
+                        {
+                            continue;
+                        }
+
+                        float SupportGroundZ = Actor->GetActorLocation().Z;
+                        bool bLandscapeCenter = false;
+                        if (ResolveMedianSupportGround(Actor, CandidateFootprint, SupportGroundZ, bLandscapeCenter))
+                        {
+                            const float TargetBottomZ =
+                                SupportGroundZ +
+                                Pending.BaseLocalZContribution +
+                                2.0f +
+                                Pending.EffectiveVariationDeltaLocalZ;
+                            float CurrentSupportMinZ = TNumericLimits<float>::Max();
+                            if (TryResolveActorLowestSupportZ(Actor, CurrentSupportMinZ))
+                            {
+                                const float DeltaToGround = TargetBottomZ - CurrentSupportMinZ;
+                                if (!FMath::IsNearlyZero(DeltaToGround, 0.1f))
+                                {
+                                    Actor->AddActorWorldOffset(
+                                        FVector(0.0f, 0.0f, DeltaToGround),
+                                        false,
+                                        nullptr,
+                                        ETeleportType::TeleportPhysics);
+                                }
+                            }
+                            else
+                            {
+                                FVector CorrectedLocation = Actor->GetActorLocation();
+                                CorrectedLocation.Z = TargetBottomZ;
+                                Actor->SetActorLocation(CorrectedLocation, false, nullptr, ETeleportType::TeleportPhysics);
+                            }
+                        }
+
+                        ActorFootprint = CandidateFootprint;
+                        bResolved = true;
+                        bAnyActorMovedThisPass = true;
+                        ++BlueprintOverlapResolvedCount;
+                        ++CorrectedCount;
+                        break;
+                    }
+                }
+
+                if (!bResolved)
+                {
+                    Actor->SetActorLocation(OriginalLocation, false, nullptr, ETeleportType::TeleportPhysics);
+                    FBox2D RestoredFootprint(EForceInit::ForceInit);
+                    if (BuildActorFootprintWithFallback(Actor, RestoredFootprint))
+                    {
+                        ActorFootprint = RestoredFootprint;
+                    }
+
+                    // Final hard guard: if still physically overlapping, cull this spawn to avoid visible intersections.
+                    if (ActorFootprint.bIsValid &&
+                        IsFootprintOverlappingAny(AcceptedFootprints, ActorFootprint, HardPadding))
+                    {
+                        SpawnedDynamicActors.Remove(Actor);
+                        Actor->Destroy();
+                        Pending.Actor = nullptr;
+                        ++BlueprintOverlapCulledCount;
+                        ++BlueprintOverlapResolvedCount;
+                        continue;
+                    }
+
+                    ++BlueprintOverlapUnresolvedCount;
+                }
+
+                AcceptedFootprints.Add(ActorFootprint);
+            }
+
+            if (!bAnyActorMovedThisPass)
+            {
+                break;
+            }
+        }
+    }
+
     UE_LOG(
         LogTemp,
-        Warning,
-        TEXT("[RaidRoom][TerrainStabilize] Node=%d Processed=%d Corrected=%d FlattenApplied=%d FlattenOverlapSkip=%d NoGround=%d NoLandscape=%d"),
+        Display,
+        TEXT("[RaidRoom][TerrainStabilize] Node=%d Processed=%d Corrected=%d FlattenApplied=%d FlattenOverlapSkip=%d NoGround=%d NoLandscape=%d BPOverlapResolved=%d BPOverlapUnresolved=%d BPOverlapCulled=%d"),
         NodeId,
         ProcessedCount,
         CorrectedCount,
         FlattenAppliedCount,
         FlattenOverlapSkipCount,
         NoGroundCount,
-        NoLandscapeCount);
+        NoLandscapeCount,
+        BlueprintOverlapResolvedCount,
+        BlueprintOverlapUnresolvedCount,
+        BlueprintOverlapCulledCount);
 
     PendingBlueprintTerrainPlacements.Reset();
 }
@@ -5169,6 +5960,15 @@ void ARaidRoomActor::GenerateTraversalWhiteboxKit(float RoomRadius, const FModul
 {
     if (!bEnableTraversalWhiteboxKit) return;
     FRandomStream Rng(NodeRow.Seed ^ (NodeId * 9973));
+    const UWorld* CurrentWorld = GetWorld();
+    const bool bIsGameWorld = (CurrentWorld && CurrentWorld->IsGameWorld());
+    const bool bJungleStyledRoom =
+        NodeRow.EnvType.Equals(TEXT("Jungle"), ESearchCase::IgnoreCase) ||
+        NodeRow.EnvType.Equals(TEXT("Nature"), ESearchCase::IgnoreCase) ||
+        NodeRow.EnvType.Equals(TEXT("NatureVillage"), ESearchCase::IgnoreCase) ||
+        NodeRow.Theme.Equals(TEXT("Jungle"), ESearchCase::IgnoreCase) ||
+        NodeRow.Theme.Equals(TEXT("Nature"), ESearchCase::IgnoreCase) ||
+        NodeRow.Theme.Equals(TEXT("NatureVillage"), ESearchCase::IgnoreCase);
     UMaterialInterface* TraversalMat = GetTraversalMaterial();
     const bool bHasTraversalMeshOverride = !TraversalMeshOverride.IsNull();
     TMap<FSoftObjectPath, float> MeshBaseLiftCache;
@@ -5202,6 +6002,218 @@ void ARaidRoomActor::GenerateTraversalWhiteboxKit(float RoomRadius, const FModul
         ThemeKit->GetEffectiveVariationsForChannel(ERaidVariationOffsetChannel::Wall, ThemeWallVariations);
         ThemeKit->GetEffectiveVariationsForChannel(ERaidVariationOffsetChannel::Obstacle, ThemeObstacleVariations);
         ThemeKit->GetEffectiveVariationsForChannel(ERaidVariationOffsetChannel::Decoration, ThemeDecorationVariations);
+    }
+
+    auto BuildRuntimeUsableVariations =
+        [&](const TArray<FMeshVariation>& InVariations, TArray<FMeshVariation>& OutVariations, const TCHAR* ChannelLabel)
+        {
+            OutVariations.Reset();
+            OutVariations.Reserve(InVariations.Num());
+
+            for (const FMeshVariation& Variation : InVariations)
+            {
+                const bool bHasMesh = !Variation.Mesh.IsNull();
+                const bool bHasBlueprint = !Variation.BlueprintPrefab.IsNull();
+                if (!bHasMesh && !bHasBlueprint)
+                {
+                    continue;
+                }
+
+                bool bLoadable = false;
+                FString AssetPath;
+
+                if (bHasBlueprint)
+                {
+                    AssetPath = Variation.BlueprintPrefab.ToString();
+                    bLoadable = Variation.BlueprintPrefab.LoadSynchronous() != nullptr;
+                }
+                else
+                {
+                    AssetPath = Variation.Mesh.ToString();
+                    bLoadable = Variation.Mesh.LoadSynchronous() != nullptr;
+                }
+
+                if (!bLoadable)
+                {
+                    if (bIsGameWorld)
+                    {
+                        static TSet<FString> LoggedUnusableVariationPaths;
+                        if (!AssetPath.IsEmpty() && !LoggedUnusableVariationPaths.Contains(AssetPath))
+                        {
+                            LoggedUnusableVariationPaths.Add(AssetPath);
+                            UE_LOG(
+                                LogTemp,
+                                Warning,
+                                TEXT("[RaidRoom] Unusable variation skipped at runtime. Node=%d Channel=%s Theme=%s Env=%s Asset=%s"),
+                                NodeId,
+                                ChannelLabel,
+                                *NodeRow.Theme,
+                                *NodeRow.EnvType,
+                                *AssetPath);
+                        }
+                    }
+                    continue;
+                }
+
+                OutVariations.Add(Variation);
+            }
+        };
+
+    if (bIsGameWorld)
+    {
+        // Shipping/runtime safety: if cooked data loses valid soft references in effective list,
+        // fall back to raw channel list before generation proceeds.
+        TArray<FMeshVariation> RuntimeObstacleVariations;
+        BuildRuntimeUsableVariations(ThemeObstacleVariations, RuntimeObstacleVariations, TEXT("Obstacle"));
+        if (RuntimeObstacleVariations.Num() <= 0 && ThemeKit)
+        {
+            TArray<FMeshVariation> RawObstacleVariations;
+            ThemeKit->GetAllRawVariationsForChannel(ERaidVariationOffsetChannel::Obstacle, RawObstacleVariations);
+            BuildRuntimeUsableVariations(RawObstacleVariations, RuntimeObstacleVariations, TEXT("ObstacleRaw"));
+        }
+        if (RuntimeObstacleVariations.Num() > 0)
+        {
+            ThemeObstacleVariations = MoveTemp(RuntimeObstacleVariations);
+        }
+
+        // Generic fallback: if resolved theme yields no usable obstacle variations in runtime,
+        // try compatible theme entries from ThemeRegistry first, then all themes as last resort.
+        if (ThemeObstacleVariations.Num() <= 0 && ChapterConfigRef)
+        {
+            auto BuildThemeFallbackObstaclePool =
+                [&](bool bOnlyCompatibleThemes, TArray<FMeshVariation>& OutFallbackVariations) -> void
+                {
+                    OutFallbackVariations.Reset();
+
+                    TSet<FSoftObjectPath> AddedMeshPaths;
+                    TSet<FSoftObjectPath> AddedBlueprintPaths;
+
+                    auto AppendUniqueVariations =
+                        [&](const TArray<FMeshVariation>& InVariations)
+                        {
+                            for (const FMeshVariation& Variation : InVariations)
+                            {
+                                const FSoftObjectPath MeshPath = Variation.Mesh.ToSoftObjectPath();
+                                const FSoftObjectPath BlueprintPath = Variation.BlueprintPrefab.ToSoftObjectPath();
+
+                                if (MeshPath.IsNull() && BlueprintPath.IsNull())
+                                {
+                                    continue;
+                                }
+
+                                bool bAlreadyAdded = false;
+                                if (!MeshPath.IsNull())
+                                {
+                                    bAlreadyAdded = AddedMeshPaths.Contains(MeshPath);
+                                }
+                                else if (!BlueprintPath.IsNull())
+                                {
+                                    bAlreadyAdded = AddedBlueprintPaths.Contains(BlueprintPath);
+                                }
+
+                                if (bAlreadyAdded)
+                                {
+                                    continue;
+                                }
+
+                                if (!MeshPath.IsNull())
+                                {
+                                    AddedMeshPaths.Add(MeshPath);
+                                }
+                                if (!BlueprintPath.IsNull())
+                                {
+                                    AddedBlueprintPaths.Add(BlueprintPath);
+                                }
+
+                                OutFallbackVariations.Add(Variation);
+                            }
+                        };
+
+                    for (const TPair<FString, FModularMeshKit>& Pair : ChapterConfigRef->ThemeRegistry)
+                    {
+                        const FString ThemeKey = Pair.Key;
+                        bool bCompatibleTheme = false;
+
+                        if (ThemeKey.Equals(CachedResolvedThemeKey, ESearchCase::IgnoreCase) ||
+                            ThemeKey.Equals(NodeRow.Theme, ESearchCase::IgnoreCase) ||
+                            ThemeKey.Equals(NodeRow.EnvType, ESearchCase::IgnoreCase))
+                        {
+                            bCompatibleTheme = true;
+                        }
+                        else
+                        {
+                            const FString ThemeKeyLower = ThemeKey.ToLower();
+                            if (bJungleStyledRoom)
+                            {
+                                bCompatibleTheme =
+                                    ThemeKeyLower.Contains(TEXT("jungle")) ||
+                                    ThemeKeyLower.Contains(TEXT("nature"));
+                            }
+                            else if (NodeRow.EnvType.Equals(TEXT("Urban"), ESearchCase::IgnoreCase) ||
+                                     NodeRow.Theme.Equals(TEXT("Urban"), ESearchCase::IgnoreCase))
+                            {
+                                bCompatibleTheme = ThemeKeyLower.Contains(TEXT("urban"));
+                            }
+                        }
+
+                        if (bOnlyCompatibleThemes && !bCompatibleTheme)
+                        {
+                            continue;
+                        }
+
+                        TArray<FMeshVariation> CandidateVariations;
+                        Pair.Value.GetEffectiveVariationsForChannel(ERaidVariationOffsetChannel::Obstacle, CandidateVariations);
+                        if (CandidateVariations.Num() <= 0)
+                        {
+                            Pair.Value.GetAllRawVariationsForChannel(ERaidVariationOffsetChannel::Obstacle, CandidateVariations);
+                        }
+
+                        TArray<FMeshVariation> RuntimeUsable;
+                        BuildRuntimeUsableVariations(CandidateVariations, RuntimeUsable, TEXT("ThemeRegistryFallback"));
+                        AppendUniqueVariations(RuntimeUsable);
+                    }
+                };
+
+            TArray<FMeshVariation> FallbackVariations;
+            bool bUsedCompatiblePass = true;
+            BuildThemeFallbackObstaclePool(true, FallbackVariations);
+            if (FallbackVariations.Num() <= 0)
+            {
+                bUsedCompatiblePass = false;
+                BuildThemeFallbackObstaclePool(false, FallbackVariations);
+            }
+
+            if (FallbackVariations.Num() > 0)
+            {
+                ThemeObstacleVariations = MoveTemp(FallbackVariations);
+                UE_LOG(
+                    LogTemp,
+                    Warning,
+                    TEXT("[RaidRoom] Obstacle variation registry fallback enabled. Node=%d Theme=%s Env=%s Count=%d CompatibleOnly=%s"),
+                    NodeId,
+                    *NodeRow.Theme,
+                    *NodeRow.EnvType,
+                    ThemeObstacleVariations.Num(),
+                    bUsedCompatiblePass ? TEXT("true") : TEXT("false"));
+            }
+        }
+    }
+
+    if (bIsGameWorld)
+    {
+        static int32 GObstaclePoolLogCount = 0;
+        if (GObstaclePoolLogCount < 32)
+        {
+            ++GObstaclePoolLogCount;
+            UE_LOG(
+                LogTemp,
+                Warning,
+                TEXT("[RaidRoom] Obstacle pool ready. Node=%d Theme=%s Env=%s Count=%d"),
+                NodeId,
+                *NodeRow.Theme,
+                *NodeRow.EnvType,
+                ThemeObstacleVariations.Num());
+        }
     }
 
     auto BuildObstacleVariationDebugKey = [&](const FMeshVariation& Variation, int32 VariationIndex) -> FString
@@ -5300,6 +6312,24 @@ void ARaidRoomActor::GenerateTraversalWhiteboxKit(float RoomRadius, const FModul
 
             if (TotalWeight <= KINDA_SMALL_NUMBER)
             {
+                if (bIsGameWorld)
+                {
+                    static int32 GObstacleZeroWeightLogCount = 0;
+                    if (GObstacleZeroWeightLogCount < 32)
+                    {
+                        ++GObstacleZeroWeightLogCount;
+                        UE_LOG(
+                            LogTemp,
+                            Warning,
+                            TEXT("[RaidRoom] Obstacle variation total weight is zero. Node=%d Theme=%s Env=%s Pool=%d StaticWeightScale=%.2f BlueprintWeightScale=%.2f"),
+                            NodeId,
+                            *NodeRow.Theme,
+                            *NodeRow.EnvType,
+                            CandidatePool ? CandidatePool->Num() : 0,
+                            StaticMeshObstacleWeightScale,
+                            BlueprintObstacleWeightScale);
+                    }
+                }
                 LastPickedObstacleVariationKey.Reset();
                 return nullptr;
             }
@@ -5325,7 +6355,7 @@ void ARaidRoomActor::GenerateTraversalWhiteboxKit(float RoomRadius, const FModul
                         const FVector VarOffset = Variation.Offset.GetLocation();
                         UE_LOG(
                             LogTemp,
-                            Warning,
+                            Display,
                             TEXT("[RaidRoom][PickDebug] Node=%d Theme=%s Env=%s MeshType=%d Key=%s Asset=%s VarOffset=(%.1f,%.1f,%.1f)"),
                             NodeId,
                             *NodeRow.Theme,
@@ -5970,6 +7000,20 @@ void ARaidRoomActor::GenerateTraversalWhiteboxKit(float RoomRadius, const FModul
             ObstacleSpawnCountScale,
             StaticMeshObstacleWeightScale,
             BlueprintObstacleWeightScale);
+    }
+    else if (bIsGameWorld && ObstacleTargetCount > 0 && ObstaclePlacedCount <= 0)
+    {
+        UE_LOG(
+            LogTemp,
+            Warning,
+            TEXT("[RaidRoom] Obstacle placement stalled. Node=%d Theme=%s Env=%s target=%d attempts=%d no-variation=%d placement-reject=%d"),
+            NodeId,
+            *NodeRow.Theme,
+            *NodeRow.EnvType,
+            ObstacleTargetCount,
+            ObstacleAttemptCount,
+            ObstacleNoVariationCount,
+            ObstaclePlacementRejectCount);
     }
 
     if (bLogObstacleVariationBreakdown && (ObstacleVariationPickCounts.Num() > 0 || ObstacleVariationConfiguredWeights.Num() > 0))

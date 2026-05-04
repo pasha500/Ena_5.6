@@ -165,7 +165,7 @@ void URaidCombatSubsystem::SpawnWaveNow(int32 WaveNumber, APawn* PlayerPawn)
             const FVector SpawnedLoc = SpawnedEnemy->GetActorLocation();
             const double SpawnNow = World->GetTimeSeconds();
             const double RecoveryGraceUntil = SpawnNow + FMath::Max(0.0f, (double)EnemyRecoverySpawnGraceSeconds);
-            const double ActivationTime = SpawnNow + FMath::Max(0.0f, EnemySearchStartDelay);
+            const double ActivationTime = ResolveEnemySearchActivationTime(WaveRoomId, SpawnedLoc, SpawnNow, PlayerPawn);
             EnemyLastKnownValidLocationByPawn.Add(WeakSpawnedEnemy, SpawnedLoc);
             EnemyStuckLastProgressLocationByPawn.Add(WeakSpawnedEnemy, SpawnedLoc);
             EnemyStuckLastProgressTimeByPawn.Add(WeakSpawnedEnemy, SpawnNow);
@@ -177,6 +177,7 @@ void URaidCombatSubsystem::SpawnWaveNow(int32 WaveNumber, APawn* PlayerPawn)
             EnemySearchActivationTimeByPawn.Add(WeakSpawnedEnemy, ActivationTime);
             EnemySearchNextOrderTimeByPawn.Add(WeakSpawnedEnemy, ActivationTime + FMath::FRandRange(0.08, 0.40));
             SpawnedEnemy->OnDestroyed.AddDynamic(this, &URaidCombatSubsystem::OnEnemyDestroyed);
+            RaiseRoomCombatAlert(WaveRoomId, SpawnNow);
 
             ++SpawnedCount;
             ++AliveWaveEnemyCount;
@@ -186,7 +187,7 @@ void URaidCombatSubsystem::SpawnWaveNow(int32 WaveNumber, APawn* PlayerPawn)
     if (SpawnedCount > 0)
     {
         CurrentWaveNumber = FMath::Max(CurrentWaveNumber, WaveNumber);
-        UE_LOG(LogTemp, Warning, TEXT("[RaidCombat] Dynamic wave %d spawned. Count=%d AliveWave=%d"), WaveNumber, SpawnedCount, AliveWaveEnemyCount);
+        UE_LOG(LogTemp, Display, TEXT("[RaidCombat] Dynamic wave %d spawned. Count=%d AliveWave=%d"), WaveNumber, SpawnedCount, AliveWaveEnemyCount);
 
         if (bShowWaveStartBanner)
         {
@@ -197,9 +198,17 @@ void URaidCombatSubsystem::SpawnWaveNow(int32 WaveNumber, APawn* PlayerPawn)
             }
 
             const FText BannerSubtitle = WaveStartBannerSubtitle.IsEmpty()
-                ? FText::FromString(TEXT("?ㅼ닔???곷뱾???ㅺ??듬땲??"))
+                ? FText::FromString(TEXT("Enemy wave incoming"))
                 : WaveStartBannerSubtitle;
-            EnqueueRegionBannerMessage(BannerTitle, BannerSubtitle, WaveStartBannerDuration, false);
+            EnqueueRegionBannerMessage(BannerTitle, BannerSubtitle, WaveStartBannerDuration, true);
         }
+    }
+    else
+    {
+        UE_LOG(
+            LogTemp,
+            Warning,
+            TEXT("[RaidCombat] Wave %d started but spawned 0 enemies. Spawn points were rejected by safety checks."),
+            WaveNumber);
     }
 }

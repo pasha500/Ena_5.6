@@ -22,6 +22,7 @@
 #include "GameFramework/PhysicsVolume.h"
 #include "EngineUtils.h"
 #include "HAL/IConsoleManager.h"
+#include "HAL/PlatformMemory.h"
 #include "Materials/MaterialInterface.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "MaterialTypes.h"
@@ -84,6 +85,133 @@ namespace
         return (World && World->IsGameWorld())
             ? (RF_Transient | RF_DuplicateTransient | RF_TextExportTransient)
             : RF_NoFlags;
+    }
+
+    double BytesToGiB(const uint64 Bytes)
+    {
+        return static_cast<double>(Bytes) / (1024.0 * 1024.0 * 1024.0);
+    }
+
+    bool IsPrePieAutoBakeMemoryHealthy(FPlatformMemoryStats* OutStats = nullptr)
+    {
+        const FPlatformMemoryStats Stats = FPlatformMemory::GetStats();
+        if (OutStats)
+        {
+            *OutStats = Stats;
+        }
+
+        // Pre-PIE auto-bake can spike memory heavily while generating room geometry and
+        // landscape flatten blobs. Keep a safer headroom to avoid editor OOM crashes.
+        constexpr uint64 MinAvailablePhysicalBytes = 4096ull * 1024ull * 1024ull; // 4.0 GiB
+        constexpr uint64 MinAvailableVirtualBytes = 2048ull * 1024ull * 1024ull;  // 2.0 GiB
+        return Stats.AvailablePhysical >= MinAvailablePhysicalBytes &&
+               Stats.AvailableVirtual >= MinAvailableVirtualBytes;
+    }
+
+    int32 CountRoomTaggedGeometry(ARaidRoomActor* Room, int32 MeshType)
+    {
+        if (!IsValid(Room))
+        {
+            return 0;
+        }
+
+        const FName MeshTypeTag(*FString::Printf(TEXT("MeshType_%d"), MeshType));
+        int32 Count = 0;
+
+        TInlineComponentArray<UHierarchicalInstancedStaticMeshComponent*> RoomISMComponents(Room);
+        for (UHierarchicalInstancedStaticMeshComponent* ISMC : RoomISMComponents)
+        {
+            if (!IsValid(ISMC) || !ISMC->ComponentTags.Contains(MeshTypeTag))
+            {
+                continue;
+            }
+
+            Count += FMath::Max(0, ISMC->GetInstanceCount());
+        }
+
+        TArray<AActor*> AttachedActors;
+        Room->GetAttachedActors(AttachedActors, true, true);
+        for (AActor* AttachedActor : AttachedActors)
+        {
+            if (!IsValid(AttachedActor))
+            {
+                continue;
+            }
+
+            bool bTagged = AttachedActor->ActorHasTag(MeshTypeTag);
+            if (!bTagged)
+            {
+                TInlineComponentArray<UPrimitiveComponent*> PrimitiveComponents(AttachedActor);
+                for (UPrimitiveComponent* PrimitiveComponent : PrimitiveComponents)
+                {
+                    if (IsValid(PrimitiveComponent) && PrimitiveComponent->ComponentTags.Contains(MeshTypeTag))
+                    {
+                        bTagged = true;
+                        break;
+                    }
+                }
+            }
+
+            if (bTagged)
+            {
+                ++Count;
+            }
+        }
+
+        return Count;
+    }
+
+    int32 CountRuntimeUsableVariationsForChannel(const FModularMeshKit* ThemeKit, ERaidVariationOffsetChannel Channel)
+    {
+        if (!ThemeKit)
+        {
+            return 0;
+        }
+
+        TArray<FMeshVariation> Variations;
+        ThemeKit->GetEffectiveVariationsForChannel(Channel, Variations);
+        if (Variations.Num() <= 0)
+        {
+            ThemeKit->GetAllRawVariationsForChannel(Channel, Variations);
+        }
+
+        static TMap<FSoftObjectPath, bool> RuntimeLoadabilityCache;
+        int32 UsableCount = 0;
+        for (const FMeshVariation& Variation : Variations)
+        {
+            const FSoftObjectPath MeshPath = Variation.Mesh.ToSoftObjectPath();
+            const FSoftObjectPath BlueprintPath = Variation.BlueprintPrefab.ToSoftObjectPath();
+            const FSoftObjectPath AssetPath = !BlueprintPath.IsNull() ? BlueprintPath : MeshPath;
+            if (AssetPath.IsNull())
+            {
+                continue;
+            }
+
+            bool bLoadable = false;
+            if (const bool* Cached = RuntimeLoadabilityCache.Find(AssetPath))
+            {
+                bLoadable = *Cached;
+            }
+            else
+            {
+                if (!BlueprintPath.IsNull())
+                {
+                    bLoadable = Variation.BlueprintPrefab.LoadSynchronous() != nullptr;
+                }
+                else
+                {
+                    bLoadable = Variation.Mesh.LoadSynchronous() != nullptr;
+                }
+                RuntimeLoadabilityCache.Add(AssetPath, bLoadable);
+            }
+
+            if (bLoadable)
+            {
+                ++UsableCount;
+            }
+        }
+
+        return UsableCount;
     }
 
     bool BuildWorldFootprintFromLocalBounds(const FBox& LocalBounds, const FTransform& WorldTransform, FBox2D& OutFootprint)
@@ -626,6 +754,76 @@ namespace
             OutHit.ImpactNormal = SupportNormal.GetSafeNormal();
         }
 
+        return true;
+    }
+
+    bool MeasureGroundSupportStats(
+        UWorld* World,
+        const FVector& XYLocation,
+        bool bPreferLandscape,
+        bool bIgnoreRaidRooms,
+        const FCollisionQueryParams& QueryParams,
+        float SampleRadius,
+        int32 RadialSampleCount,
+        float& OutHitRatio,
+        float& OutHeightRange)
+    {
+        OutHitRatio = 0.0f;
+        OutHeightRange = 0.0f;
+
+        if (!World)
+        {
+            return false;
+        }
+
+        const int32 SafeRadialSamples = FMath::Clamp(RadialSampleCount, 1, 16);
+        const int32 TotalSamples = SafeRadialSamples + 1; // center + ring
+
+        TArray<float> Heights;
+        Heights.Reserve(TotalSamples);
+
+        auto TryCollectHeightAt = [&](const FVector& Point) -> void
+        {
+            FHitResult Hit;
+            if (TryResolveSingleGroundHitAtPoint(
+                World,
+                Point,
+                bPreferLandscape,
+                bIgnoreRaidRooms,
+                QueryParams,
+                Hit))
+            {
+                Heights.Add(Hit.ImpactPoint.Z);
+            }
+        };
+
+        TryCollectHeightAt(XYLocation);
+
+        for (int32 SampleIndex = 0; SampleIndex < SafeRadialSamples; ++SampleIndex)
+        {
+            const float Angle = (2.0f * PI * (float)SampleIndex) / (float)SafeRadialSamples;
+            const FVector RingPoint = XYLocation + FVector(FMath::Cos(Angle) * SampleRadius, FMath::Sin(Angle) * SampleRadius, 0.0f);
+            TryCollectHeightAt(RingPoint);
+        }
+
+        if (Heights.Num() <= 0)
+        {
+            return false;
+        }
+
+        OutHitRatio = (float)Heights.Num() / (float)FMath::Max(1, TotalSamples);
+        float MinHeight = TNumericLimits<float>::Max();
+        float MaxHeight = -TNumericLimits<float>::Max();
+        for (const float HeightZ : Heights)
+        {
+            MinHeight = FMath::Min(MinHeight, HeightZ);
+            MaxHeight = FMath::Max(MaxHeight, HeightZ);
+        }
+
+        if (MinHeight < TNumericLimits<float>::Max() && MaxHeight > -TNumericLimits<float>::Max())
+        {
+            OutHeightRange = FMath::Max(0.0f, MaxHeight - MinHeight);
+        }
         return true;
     }
 
@@ -1598,7 +1796,7 @@ namespace
             return false;
         }
 
-        const float EffectiveWidthSamplePadding = FMath::Min(AvoidanceRadius, 140.0f);
+        const float EffectiveWidthSamplePadding = FMath::Clamp(AvoidanceRadius, 120.0f, 2200.0f);
         if (CachedRoadWidthSamples &&
             IsLocationNearLandscapeSplineWidthSamples(Location, EffectiveWidthSamplePadding, *CachedRoadWidthSamples))
         {
@@ -1865,36 +2063,37 @@ namespace
 
         const FVector2D Min = Footprint.Min;
         const FVector2D Max = Footprint.Max;
+        const FVector2D Size = Footprint.GetSize();
+        const float ExtraPadding = FMath::Clamp(FMath::Max(Size.X, Size.Y) * 0.12f, 60.0f, 900.0f);
+        const float EffectiveAvoidanceRadius = AvoidanceRadius + ExtraPadding;
 
-        static const FVector2D LocalSamples[] =
+        // Dense grid sampling catches narrow/long road intersections that center+corner probes miss.
+        constexpr int32 GridAxisSamples = 5;
+        for (int32 SampleY = 0; SampleY < GridAxisSamples; ++SampleY)
         {
-            FVector2D(0.0f, 0.0f),   // center
-            FVector2D(-1.0f, -1.0f), // corners
-            FVector2D(1.0f, -1.0f),
-            FVector2D(-1.0f, 1.0f),
-            FVector2D(1.0f, 1.0f),
-            FVector2D(-1.0f, 0.0f),  // edge midpoints
-            FVector2D(1.0f, 0.0f),
-            FVector2D(0.0f, -1.0f),
-            FVector2D(0.0f, 1.0f)
-        };
-
-        for (const FVector2D& Sample : LocalSamples)
-        {
-            const FVector2D XY(
-                FMath::Lerp(Min.X, Max.X, (Sample.X + 1.0f) * 0.5f),
-                FMath::Lerp(Min.Y, Max.Y, (Sample.Y + 1.0f) * 0.5f));
-            const FVector SamplePoint(XY.X, XY.Y, 0.0f);
-            if (IsLocationNearLandscapeSplineRoad(
-                World,
-                SamplePoint,
-                AvoidanceRadius,
-                QueryParams,
-                CachedRoadSplines,
-                CachedRoadFootprints,
-                CachedRoadWidthSamples))
+            const float V = (GridAxisSamples <= 1)
+                ? 0.5f
+                : static_cast<float>(SampleY) / static_cast<float>(GridAxisSamples - 1);
+            for (int32 SampleX = 0; SampleX < GridAxisSamples; ++SampleX)
             {
-                return true;
+                const float U = (GridAxisSamples <= 1)
+                    ? 0.5f
+                    : static_cast<float>(SampleX) / static_cast<float>(GridAxisSamples - 1);
+                const FVector2D XY(
+                    FMath::Lerp(Min.X, Max.X, U),
+                    FMath::Lerp(Min.Y, Max.Y, V));
+                const FVector SamplePoint(XY.X, XY.Y, 0.0f);
+                if (IsLocationNearLandscapeSplineRoad(
+                    World,
+                    SamplePoint,
+                    EffectiveAvoidanceRadius,
+                    QueryParams,
+                    CachedRoadSplines,
+                    CachedRoadFootprints,
+                    CachedRoadWidthSamples))
+                {
+                    return true;
+                }
             }
         }
 
@@ -2114,6 +2313,18 @@ void ARaidLayoutManager::HandlePreBeginPie(bool bIsSimulating)
         return;
     }
 
+    FPlatformMemoryStats PrePieMemoryStats;
+    if (!IsPrePieAutoBakeMemoryHealthy(&PrePieMemoryStats))
+    {
+        UE_LOG(
+            LogTemp,
+            Warning,
+            TEXT("[RaidLayout] Pre-PIE auto-bake skipped (low memory guard). AvailablePhysical=%.2f GiB AvailableVirtual=%.2f GiB"),
+            BytesToGiB(PrePieMemoryStats.AvailablePhysical),
+            BytesToGiB(PrePieMemoryStats.AvailableVirtual));
+        return;
+    }
+
     bool bHasPrebuiltRooms = false;
     for (TActorIterator<ARaidRoomActor> It(World); It; ++It)
     {
@@ -2253,6 +2464,7 @@ void ARaidLayoutManager::BeginPlay()
     int32 ReboundRoomConfigCount = 0;
     int32 SyncedNodeRowFromTableCount = 0;
     int32 RegeneratedRoomLayoutCount = 0;
+    int32 AutoRecoveredRoomLayoutCount = 0;
     ARaidRoomActor* StartRoom = nullptr;
     for (ARaidRoomActor* Room : ExistingRooms)
     {
@@ -2277,7 +2489,68 @@ void ARaidLayoutManager::BeginPlay()
             ++ReboundRoomConfigCount;
         }
 
-        if (bIsGameWorld && bRegeneratePrebuiltRoomLayoutOnBeginPlay)
+        bool bRoomLayoutRegenerated = false;
+
+        if (bIsGameWorld &&
+            !bRegeneratePrebuiltRoomLayoutOnBeginPlay &&
+            bAutoRecoverInvalidPrebuiltRoomGeometryAtRuntime &&
+            IsValid(ChapterConfig))
+        {
+            const FLevelNodeRow& RoomNodeRow = Room->GetNodeRow();
+            FString ResolvedThemeKey;
+            const FModularMeshKit* ResolvedThemeKit = nullptr;
+            ChapterConfig->ResolveThemeKitForNode(RoomNodeRow, ResolvedThemeKey, ResolvedThemeKit);
+
+            const int32 ExpectedFloorVariations =
+                CountRuntimeUsableVariationsForChannel(ResolvedThemeKit, ERaidVariationOffsetChannel::Floor);
+            const int32 ExpectedWallVariations =
+                CountRuntimeUsableVariationsForChannel(ResolvedThemeKit, ERaidVariationOffsetChannel::Wall);
+            const int32 ExpectedObstacleVariations =
+                CountRuntimeUsableVariationsForChannel(ResolvedThemeKit, ERaidVariationOffsetChannel::Obstacle);
+            const int32 ExpectedDecorationVariations =
+                CountRuntimeUsableVariationsForChannel(ResolvedThemeKit, ERaidVariationOffsetChannel::Decoration);
+
+            const int32 ExistingFloorGeometry = CountRoomTaggedGeometry(Room, 0);
+            const int32 ExistingWallGeometry = CountRoomTaggedGeometry(Room, 1);
+            const int32 ExistingObstacleGeometry = CountRoomTaggedGeometry(Room, 2);
+            const int32 ExistingDecorationGeometry = CountRoomTaggedGeometry(Room, 3);
+
+            const bool bExpectedCoreGeometry = (ExpectedFloorVariations + ExpectedWallVariations) > 0;
+            const bool bMissingCoreGeometry = (ExistingFloorGeometry + ExistingWallGeometry) <= 0;
+            const bool bExpectedScatterGeometry = (ExpectedObstacleVariations + ExpectedDecorationVariations) > 0;
+            const bool bMissingScatterGeometry = (ExistingObstacleGeometry + ExistingDecorationGeometry) <= 0;
+
+            const bool bNeedsAutoRecovery =
+                (bExpectedCoreGeometry && bMissingCoreGeometry) ||
+                (bExpectedScatterGeometry && bMissingScatterGeometry);
+
+            if (bNeedsAutoRecovery)
+            {
+                Room->GenerateRoomLayout();
+                ++RegeneratedRoomLayoutCount;
+                ++AutoRecoveredRoomLayoutCount;
+                bRoomLayoutRegenerated = true;
+
+                UE_LOG(
+                    LogTemp,
+                    Warning,
+                    TEXT("[RaidLayout] Auto-recovered prebuilt room geometry. Node=%d Type=%s Theme=%s Env=%s Expected(Floor=%d Wall=%d Obs=%d Deco=%d) Existing(Floor=%d Wall=%d Obs=%d Deco=%d)"),
+                    Room->GetNodeId(),
+                    *RoomNodeRow.RoomType,
+                    *RoomNodeRow.Theme,
+                    *RoomNodeRow.EnvType,
+                    ExpectedFloorVariations,
+                    ExpectedWallVariations,
+                    ExpectedObstacleVariations,
+                    ExpectedDecorationVariations,
+                    ExistingFloorGeometry,
+                    ExistingWallGeometry,
+                    ExistingObstacleGeometry,
+                    ExistingDecorationGeometry);
+            }
+        }
+
+        if (bIsGameWorld && bRegeneratePrebuiltRoomLayoutOnBeginPlay && !bRoomLayoutRegenerated)
         {
             Room->GenerateRoomLayout();
             ++RegeneratedRoomLayoutCount;
@@ -2313,11 +2586,12 @@ void ARaidLayoutManager::BeginPlay()
     UE_LOG(
         LogTemp,
         Warning,
-        TEXT("[RaidLayout] BeginPlay kept prebuilt layout. Registered rooms=%d ReboundConfig=%d SyncedNodeRows=%d RegeneratedLayout=%d RuntimeRegeneration=%s"),
+        TEXT("[RaidLayout] BeginPlay kept prebuilt layout. Registered rooms=%d ReboundConfig=%d SyncedNodeRows=%d RegeneratedLayout=%d AutoRecovered=%d RuntimeRegeneration=%s"),
         ExistingRooms.Num(),
         ReboundRoomConfigCount,
         SyncedNodeRowFromTableCount,
         RegeneratedRoomLayoutCount,
+        AutoRecoveredRoomLayoutCount,
         bRegeneratePrebuiltRoomLayoutOnBeginPlay ? TEXT("On") : TEXT("Off"));
 }
 
@@ -3884,6 +4158,8 @@ void ARaidLayoutManager::ScatterBackgroundScenery()
     int32 RejectByWaterRuleCount = 0;
     int32 RejectByWaterProximityCount = 0;
     int32 RejectByPreplacedGeometryCount = 0;
+    int32 RejectBySteepSlopeCount = 0;
+    int32 RejectByNarrowSupportCount = 0;
     int32 WindActorFallbackByBudget = 0;
     int32 WindActorFallbackByDistance = 0;
     const int32 EffectiveWindTreeActorMaxCount = bUseDenseTreeFastMode
@@ -4330,6 +4606,44 @@ void ARaidLayoutManager::ScatterBackgroundScenery()
                     ++RejectByWaterRuleCount;
                     continue;
                 }
+                if (bRejectSteepOrNarrowGroundForBackgroundScatter)
+                {
+                    const float GroundNormalZ = FMath::Clamp(Hit.ImpactNormal.GetSafeNormal().Z, -1.0f, 1.0f);
+                    const float GroundSlopeDeg = FMath::RadiansToDegrees(FMath::Acos(GroundNormalZ));
+                    if (GroundSlopeDeg > FMath::Clamp(BackgroundMaxAllowedSlopeDeg, 10.0f, 85.0f))
+                    {
+                        ++RejectBySteepSlopeCount;
+                        continue;
+                    }
+
+                    const float SupportSampleRadius = FMath::Clamp(
+                        FMath::Max(
+                            GroundSupportSampleRadiusForCluster,
+                            EffectiveClusterMinDistance * 0.28f),
+                        90.0f,
+                        460.0f);
+                    float SupportHitRatio = 1.0f;
+                    float SupportHeightRange = 0.0f;
+                    if (MeasureGroundSupportStats(
+                        GetWorld(),
+                        Hit.ImpactPoint,
+                        bPreferLandscapeGroundHit,
+                        true,
+                        BaseGroundTraceParams,
+                        SupportSampleRadius,
+                        BackgroundGroundSupportRadialSamples,
+                        SupportHitRatio,
+                        SupportHeightRange))
+                    {
+                        const float MinSupportHitRatio = FMath::Clamp(BackgroundMinGroundSupportHitRatio, 0.10f, 1.00f);
+                        const float MaxSupportHeightRange = FMath::Clamp(BackgroundMaxGroundSupportHeightRange, 5.0f, 1200.0f);
+                        if (SupportHitRatio < MinSupportHitRatio || SupportHeightRange > MaxSupportHeightRange)
+                        {
+                            ++RejectByNarrowSupportCount;
+                            continue;
+                        }
+                    }
+                }
                 if (const FMeshVariation* RandomVar = RaidMeshUtils::PickRandomVariation(Cluster.Variations, Stream)) {
                     FRotator BaseRot = FRotator::ZeroRotator;
                     if (bNoCollision || Cluster.ClusterName.Contains(TEXT("Rock"))) { BaseRot = FRotationMatrix::MakeFromZ(Hit.ImpactNormal).Rotator(); BaseRot.Yaw = Stream.FRandRange(0.0f, 360.0f); }
@@ -4391,6 +4705,7 @@ void ARaidLayoutManager::ScatterBackgroundScenery()
                             &CachedRoadFootprints,
                             &CachedRoadWidthSamples))
                         {
+                            ++RejectByRoadCount;
                             continue;
                         }
                         if (bHasCandidateFootprint &&
@@ -4403,6 +4718,7 @@ void ARaidLayoutManager::ScatterBackgroundScenery()
                                 &CachedRoadFootprints,
                                 &CachedRoadWidthSamples))
                         {
+                            ++RejectByRoadCount;
                             continue;
                         }
                     }
@@ -4432,6 +4748,7 @@ void ARaidLayoutManager::ScatterBackgroundScenery()
                             WaterBodyOceanExtraBufferDistance,
                             WaterBodyLakeExtraBufferDistance))
                     {
+                        ++RejectByWaterRuleCount;
                         continue;
                     }
                     if (bAvoidPreplacedStaticMeshGeometry &&
@@ -4750,7 +5067,7 @@ void ARaidLayoutManager::ScatterBackgroundScenery()
     UE_LOG(
         LogTemp,
         Warning,
-        TEXT("[RaidLayout] Background scatter complete. TreeActors=%d Instanced=%d (Near=%d Mid=%d Far=%d) BlueprintActors=%d (InstancedNoShadow=%d, TreeActorsNoShadow=%d, BlueprintFail=%d, BlueprintFootprintReject=%d, WindTreeActorMode=%s, UniqueWindPhase=%s, MaxActors=%d, ActorRadius=%.0f, ActorShadowRadius=%.0f, FallbackBudget=%d, FallbackDistance=%d, ISMCBands=%s Near=%.0f Mid=%.0f, FastScatter=%s StrictOverlap=%s DetailedWater=%s AttemptsX=%d Time=%.2fs TimeBudgetHit=%s, TreePriority=%s NonTreeScale=%.2f DenseMinDistScale=%.2f, Reject(Room=%d MinDist=%d Global=%d Road=%d WaterRule=%d WaterNear=%d Preplaced=%d))"),
+        TEXT("[RaidLayout] Background scatter complete. TreeActors=%d Instanced=%d (Near=%d Mid=%d Far=%d) BlueprintActors=%d (InstancedNoShadow=%d, TreeActorsNoShadow=%d, BlueprintFail=%d, BlueprintFootprintReject=%d, WindTreeActorMode=%s, UniqueWindPhase=%s, MaxActors=%d, ActorRadius=%.0f, ActorShadowRadius=%.0f, FallbackBudget=%d, FallbackDistance=%d, ISMCBands=%s Near=%.0f Mid=%.0f, FastScatter=%s StrictOverlap=%s DetailedWater=%s AttemptsX=%d Time=%.2fs TimeBudgetHit=%s, TreePriority=%s NonTreeScale=%.2f DenseMinDistScale=%.2f, Reject(Room=%d MinDist=%d Global=%d Road=%d WaterRule=%d WaterNear=%d Preplaced=%d Steep=%d Narrow=%d))"),
         SpawnedTreeActorCount,
         SpawnedInstancedCount,
         SpawnedInstancedNearCount,
@@ -4786,7 +5103,9 @@ void ARaidLayoutManager::ScatterBackgroundScenery()
         RejectByRoadCount,
         RejectByWaterRuleCount,
         RejectByWaterProximityCount,
-        RejectByPreplacedGeometryCount);
+        RejectByPreplacedGeometryCount,
+        RejectBySteepSlopeCount,
+        RejectByNarrowSupportCount);
 
     if (bEnableBackgroundGlobalSpawnBudget && bReachedGlobalBackgroundBudget && !bReachedScatterTimeBudget)
     {
