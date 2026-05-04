@@ -1,4 +1,4 @@
-//2024 Jakub W
+//2024 Pasha
 
 #pragma once
 

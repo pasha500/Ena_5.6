@@ -1,4 +1,4 @@
-// Jakub W
+// Pasha
 
 #pragma once
 
@@ -15,8 +15,8 @@ class IWALS_ABILITYSYSTEM_API UIWALS_AnimInstanceCpp : public UAnimInstance
 {
 	GENERATED_BODY()
 
-	/* Zdefiniuj podstawowe zmienne, które bêd¹ potrzebne dla systemu Overlay States. ¿eby nie odwo³ywaæ siê do klasy ALS_AnimBP przy pomocy Property Access utworzony zosta³ w³aœnie
-	Anim Instance. W nim zdefiniowane s¹ potrzebne zmienne, wiêc dziêki temu odwo³ywaæ siê bêdziemy w³aœnie do tej klasy a nie ca³ego ALS_AnimBP */
+	/* Zdefiniuj podstawowe zmienne, ktï¿½re bï¿½dï¿½ potrzebne dla systemu Overlay States. ï¿½eby nie odwoï¿½ywaï¿½ siï¿½ do klasy ALS_AnimBP przy pomocy Property Access utworzony zostaï¿½ wï¿½aï¿½nie
+	Anim Instance. W nim zdefiniowane sï¿½ potrzebne zmienne, wiï¿½c dziï¿½ki temu odwoï¿½ywaï¿½ siï¿½ bï¿½dziemy wï¿½aï¿½nie do tej klasy a nie caï¿½ego ALS_AnimBP */
 
 	UPROPERTY(BlueprintReadWrite, Category = "IWALS Anim Graph", meta = (AllowPrivateAccess = "True"))
 		float SecondaryMotionMaskC = 0.0;

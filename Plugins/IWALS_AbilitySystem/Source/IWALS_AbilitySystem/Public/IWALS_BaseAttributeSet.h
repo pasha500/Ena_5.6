@@ -1,4 +1,4 @@
-// created by JakubW
+// created by Pasha
 
 #pragma once
 

@@ -1,4 +1,4 @@
-// Copyright Jakub W, All Rights Reserved. 
+// Copyright Pasha, All Rights Reserved. 
 
 #include "Cpp_DynamicClimbingComponent.h"
 #include "GameFramework/Character.h"

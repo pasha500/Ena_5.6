@@ -1,6 +1,6 @@
-// Copyright Jakub W, All Rights Reserved.
+// Copyright Pasha, All Rights Reserved.
 
-// plik .h zawsze na górze
+// plik .h zawsze na gï¿½rze
 #include "JakubSimpleParticleComponent.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "DrawDebugHelpers.h"
@@ -48,22 +48,22 @@ void UJakubSimpleParticleComponent::TickComponent(float DeltaTime, ELevelTick Ti
 
 void UJakubSimpleParticleComponent::ConstrainAngles()
 {
-    FVector ToParticle = ParticleLocation - RootLocation; // wektor od root do cz¹stki
+    FVector ToParticle = ParticleLocation - RootLocation; // wektor od root do czï¿½stki
 
     FVector ForwardVector = GetForwardVector(); // forward vector root
 
-    // ZnajdŸ rotacjê miêdzy ForwardVector a ToParticle.
+    // Znajdï¿½ rotacjï¿½ miï¿½dzy ForwardVector a ToParticle.
     FQuat RotationBetween = FQuat::FindBetweenNormals(ForwardVector, ToParticle.GetSafeNormal());
 
-    // Roz³ó¿ tê rotacjê na k¹ty Eulera (Yaw, Pitch, Roll)
+    // Rozï¿½ï¿½ tï¿½ rotacjï¿½ na kï¿½ty Eulera (Yaw, Pitch, Roll)
     FRotator EulerRotation = RotationBetween.Rotator();
 
-    // SprawdŸ, czy którykolwiek z k¹tów przekracza limit
+    // Sprawdï¿½, czy ktï¿½rykolwiek z kï¿½tï¿½w przekracza limit
     if (FMath::Abs(EulerRotation.Pitch) > MaxAngleX ||
         FMath::Abs(EulerRotation.Yaw) > MaxAngleY ||
         FMath::Abs(EulerRotation.Roll) > MaxAngleZ)
     {
-        // Dostosuj k¹ty, aby nie przekracza³y limitów
+        // Dostosuj kï¿½ty, aby nie przekraczaï¿½y limitï¿½w
         EulerRotation.Pitch = FMath::Clamp(EulerRotation.Pitch, -MaxAngleX, MaxAngleX);
         EulerRotation.Yaw = FMath::Clamp(EulerRotation.Yaw, -MaxAngleY, MaxAngleY);
         EulerRotation.Roll = FMath::Clamp(EulerRotation.Roll, -MaxAngleZ, MaxAngleZ);
@@ -71,15 +71,15 @@ void UJakubSimpleParticleComponent::ConstrainAngles()
         // Konwertuj z powrotem na kwaternion
         FQuat ClampedRotation = FQuat(EulerRotation);
 
-        // Oblicz now¹ pozycjê cz¹stki
+        // Oblicz nowï¿½ pozycjï¿½ czï¿½stki
         FVector NewToParticle = ClampedRotation.RotateVector(ForwardVector);
-        ParticleLocation = RootLocation + NewToParticle * MaxDistanceBetweenParticles; // zak³adamy, ¿e odleg³oœæ wynosi 10 jednostek
+        ParticleLocation = RootLocation + NewToParticle * MaxDistanceBetweenParticles; // zakï¿½adamy, ï¿½e odlegï¿½oï¿½ï¿½ wynosi 10 jednostek
     }
 }
 
 void UJakubSimpleParticleComponent::VerletIntegrate(float DeltaTime)
 {
-    FVector Gravity = GravityForce; // Sta³a grawitacji
+    FVector Gravity = GravityForce; // Staï¿½a grawitacji
 
     FVector RootVelocity = (RootLocation - PreviousRootLocation) / DeltaTime;
     FVector ParticleVelocity = (ParticleLocation - PreviousParticleLocation) / DeltaTime;
@@ -87,15 +87,15 @@ void UJakubSimpleParticleComponent::VerletIntegrate(float DeltaTime)
     //ParticleVelocity = ParticleVelocity.GetClampedToSize(0, 250);
     //GEngine->AddOnScreenDebugMessage(0, 0, FColor::Red, FVector(0,0,ParticleVelocity.Size()).ToString());
 
-    // Podstawowe ograniczenie: Zachowaj sta³¹ odleg³oœæ pomiêdzy cz¹stkami
+    // Podstawowe ograniczenie: Zachowaj staï¿½ï¿½ odlegï¿½oï¿½ï¿½ pomiï¿½dzy czï¿½stkami
     FVector ToParticle = ParticleLocation - RootLocation;
     float CurrentDistance = ToParticle.Size();
     FVector ToParticleNormalized = ToParticle / CurrentDistance;
     FVector ConstraintForce = (CurrentDistance - MaxDistanceBetweenParticles) * ToParticleNormalized;
 
-    // Sta³a sprê¿ystoœci
+    // Staï¿½a sprï¿½ystoï¿½ci
     float k = SpringForceFactor;
-    // Oblicz si³ê sprê¿ystoœci
+    // Oblicz siï¿½ï¿½ sprï¿½ystoï¿½ci
     FVector SpringForce = -k * (ParticleLocation - (GetComponentLocation() + GetForwardVector()*MaxDistanceBetweenParticles));
 
     FVector Acceleration = ConstraintForce + Gravity; 
@@ -105,7 +105,7 @@ void UJakubSimpleParticleComponent::VerletIntegrate(float DeltaTime)
     PreviousParticleLocation = ParticleLocation;
     ParticleLocation = NewParticleLocation;
 
-    // Rozwi¹¿ ograniczenia liniowe
+    // Rozwiï¿½ï¿½ ograniczenia liniowe
        // Keep the distance constraint, move the particle back to within 10 units of the Root if needed
     for (int i = 0; i <= DistanceSolverIterations; i++)
     {
@@ -147,7 +147,7 @@ void UJakubSimpleParticleComponent::MoveAttachedToParticle()
     if (Childrens.Num() == 0)
     { return; }
 
-    // Nie umiem zrobiæ lepszej tej rotacji. Skomplikowana sprawa to jest. Niby jako tako jest. Tylko kiedy zmienia siê rotacja komponent to widaæ jakieœ dziwne przesuniecia
+    // Nie umiem zrobiï¿½ lepszej tej rotacji. Skomplikowana sprawa to jest. Niby jako tako jest. Tylko kiedy zmienia siï¿½ rotacja komponent to widaï¿½ jakieï¿½ dziwne przesuniecia
 
     FVector Direction = ParticleLocation - GetComponentLocation();
     Direction.Normalize();

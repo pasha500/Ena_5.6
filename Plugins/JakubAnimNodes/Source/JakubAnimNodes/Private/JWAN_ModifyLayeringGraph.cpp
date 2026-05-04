@@ -17,7 +17,7 @@
 
 FString UJWAN_ModifyLayeringGraph::GetNodeCategory() const
 {
-	return TEXT("JakubW|CurvesManipulation");
+	return TEXT("Pasha|CurvesManipulation");
 }
 
 FText UJWAN_ModifyLayeringGraph::GetTooltipText() const

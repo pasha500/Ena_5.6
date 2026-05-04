@@ -1,5 +1,5 @@
 
-// Copyright Epic Games, Inc (MODIFIED by JakubW). All Rights Reserved. 
+// Copyright Epic Games, Inc (MODIFIED by Pasha). All Rights Reserved. 
 
 #include "JakubCablePhysic.h"
 #include "PrimitiveViewRelevance.h"
@@ -854,7 +854,7 @@ void UJakubCablePhysic::VerletIntegrate(float InSubstepTime, const FVector& Grav
 			FVector AdditiveForce = FVector(0, 0, 0);
 			if (AdditiveForces.IsValidIndex(ParticleIdx) == true) { AdditiveForce = AdditiveForces[ParticleIdx] * SubstepTimeSqr; }
 
-			// Update position         | Pozycja Cz¹stki  + Dodanie Pr?koœci    + Dodanie si³y grawitacji          - Odj?ie Wartoœci przyœpieszenia + Dodatkow sila dla wybranej cz¹stki
+			// Update position         | Pozycja Czï¿½stki  + Dodanie Pr?koï¿½ci    + Dodanie siï¿½y grawitacji          - Odj?ie Wartoï¿½ci przyï¿½pieszenia + Dodatkow sila dla wybranej czï¿½stki
 			const FVector NewPosition = Particle.Position + (Vel * DampingValue) + (SubstepTimeSqr * ParticleForce) - (Acc * DampingByAcceleration) + AdditiveForce;
 
 			// Save current Particle Position for next Frame Gen
@@ -950,7 +950,7 @@ void UJakubCablePhysic::SolveConstraints()
 // --------------------------------------------   S O L V I N G   C O L L I S I O N   -------------------------------------------------
 // ------------------------------------------------------------------------------------------------------------------------------------
 
-// Nowa funkcja, kt?a sprawdza kolizje dla wirtualnej cz¹stki
+// Nowa funkcja, kt?a sprawdza kolizje dla wirtualnej czï¿½stki
 bool UJakubCablePhysic::CheckSubSegmentCollision(FCableSingleParticle& ParticleA, FCableSingleParticle& ParticleB, float Alpha)
 {
 	UWorld* World = GetWorld();
@@ -1001,7 +1001,7 @@ void UJakubCablePhysic::PerformCableCollision()
 {
 	SCOPE_CYCLE_COUNTER(STAT_Cable_CollisionTime);
 
-	// Dla ka¿dej pary cz¹stek
+	// Dla kaï¿½dej pary czï¿½stek
 	for (int32 SegIdx = 0; SegIdx < NumSegments; SegIdx++)
 	{
 		FCableSingleParticle& ParticleA = Particles[SegIdx];
@@ -1009,12 +1009,12 @@ void UJakubCablePhysic::PerformCableCollision()
 
 		if (OptymalizeSubSegments == false)
 		{
-			// Sprawd?dodatkowe kolizje mi?zy cz¹stkami
+			// Sprawd?dodatkowe kolizje mi?zy czï¿½stkami
 			int32 NumSubSegments = CollisionSubSegments;
 			// Ustaw stan dla informacji dotyczacej czy dana czastka styka sie z kolizja. Zresetuj wartosc
 			bool HitCollision = false;
 			ParticleA.bIsColliding = false;
-			// zaczynamy od 1 i ko?zymy przed ostatnim punktem, poniewa?prawdziwe cz¹stki s?ju?sprawdzane
+			// zaczynamy od 1 i ko?zymy przed ostatnim punktem, poniewa?prawdziwe czï¿½stki s?ju?sprawdzane
 			for (int32 SubSegIdx = 1; SubSegIdx < NumSubSegments; SubSegIdx++)
 			{
 				float Alpha = (float)SubSegIdx / (float)NumSubSegments;
@@ -1040,10 +1040,10 @@ void UJakubCablePhysic::PerformCableCollision()
 				TraceChannel, FCollisionShape::MakeSphere(FMath::Clamp<float>(0.5f * CableWidth * 5, 0.5, CableLength / NumSegments)), Params, ResponseParams);
 			if (bHit == true)
 			{
-				// Sprawd?dodatkowe kolizje mi?zy cz¹stkami
+				// Sprawd?dodatkowe kolizje mi?zy czï¿½stkami
 				int32 NumSubSegments = CollisionSubSegments;
 
-				// zaczynamy od 1 i ko?zymy przed ostatnim punktem, poniewa?prawdziwe cz¹stki s?ju?sprawdzane
+				// zaczynamy od 1 i ko?zymy przed ostatnim punktem, poniewa?prawdziwe czï¿½stki s?ju?sprawdzane
 				for (int32 SubSegIdx = 1; SubSegIdx < NumSubSegments; SubSegIdx++)
 				{
 					float Alpha = (float)SubSegIdx / (float)NumSubSegments;
@@ -1336,17 +1336,17 @@ void UJakubCablePhysic::UpdateSubstepTime(float NewSubstepTime, bool FixVelocity
 void UJakubCablePhysic::AddImpulseToParticle(FVector Impulse, int ParticleIndex, bool UseDistributedForce, int UnfoldingRange)
 {
 	int PIndex = FMath::Clamp<int>(ParticleIndex, 0, Particles.Num() - 1);
-	// Pobierz cz¹stk?
+	// Pobierz czï¿½stk?
 	FCableSingleParticle& Particle = Particles[PIndex];
 	if (Particle.bFree == false)
 	{
 		return;
 	}
-	// Oblicz przybli¿on?pr?koœæ cz¹stki
+	// Oblicz przybliï¿½on?pr?koï¿½ï¿½ czï¿½stki
 	FVector Velocity = Particle.Position - Particle.OldPosition;
-	// Dodaj impuls do pr?koœci cz¹stki
+	// Dodaj impuls do pr?koï¿½ci czï¿½stki
 	Velocity += Impulse;
-	// Aktualizuj pozycje cz¹stki
+	// Aktualizuj pozycje czï¿½stki
 	Particle.OldPosition = Particle.Position;
 	Particle.Position += Velocity;
 	int DistRange = UnfoldingRange;

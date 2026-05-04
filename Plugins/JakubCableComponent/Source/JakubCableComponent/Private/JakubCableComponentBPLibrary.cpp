@@ -1,4 +1,4 @@
-// Copyright Jakub W, All Rights Reserved.
+// Copyright Pasha, All Rights Reserved.
 
 #include "JakubCableComponentBPLibrary.h"
 #include "Components/StaticMeshComponent.h"

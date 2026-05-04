@@ -1,4 +1,4 @@
-﻿
+
 
 
 #include "NavClimbingComponentCore.h"
@@ -62,7 +62,6 @@ void UNavClimbingComponentCore::BeginPlay()
 	// Inicjalizacja Debuggera
 	Debugger.Initialize(FVector2D(100.0f, 200.0f), FVector2D(300.0f, 100.0f), 50);
 
-	// Dodanie wykresów
 	Debugger.AddGraph({ FName("FollowingTimer"), FLinearColor::Red, 2.0f, FVector2D(0.0f, 1.0f), false });
 	Debugger.AddGraph({ FName("MainActionTimer"), FLinearColor::Green, 2.0f, FVector2D(0.0f, 1.0f), false });
 

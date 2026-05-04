@@ -1,4 +1,4 @@
-//2024 Jakub W
+//2024 Pasha
 
 
 #include "InteractionWidgetDisplay.h"
@@ -119,7 +119,7 @@ bool UInteractionWidgetDisplay::CheckAdditionalConditions()
 {
     if (!AddtiveConditionObject) { return true; }
     
-    // Tworzymy instancjê klasy przekazanej jako typ
+    // Tworzymy instancjï¿½ klasy przekazanej jako typ
     UInteractionWidgetCondition* ConditionInstance = NewObject<UInteractionWidgetCondition>(this, AddtiveConditionObject);
 
     if (!ConditionInstance) { return false; }

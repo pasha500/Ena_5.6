@@ -1,4 +1,4 @@
-// Copyright Jakub W, All Rights Reserved. 
+// Copyright Pasha, All Rights Reserved. 
 
 #include "Cpp_MatchedMontageComponent.h"
 #include "GameFramework/Character.h"
@@ -352,7 +352,7 @@ void UCpp_MatchedMontageComponent::TickComponent(float DeltaTime, ELevelTick Tic
 }
 
 
-// ------------------ Zadeklaruj funkcje które bêd¹ potrzebne do uruchomienia Timera -----------
+// ------------------ Zadeklaruj funkcje ktï¿½re bï¿½dï¿½ potrzebne do uruchomienia Timera -----------
 //TIMER FUNCTION
 void UCpp_MatchedMontageComponent::TimerFunction1()
 {
@@ -365,7 +365,7 @@ void UCpp_MatchedMontageComponent::TimerFunction2()
 }
 //-----------------------------------------------------------------------------------------------
 
-//Funcje, które mog¹ byæ nadpisanie poprzez blueprint
+//Funcje, ktï¿½re mogï¿½ byï¿½ nadpisanie poprzez blueprint
 
 void UCpp_MatchedMontageComponent::FinishMatchedMontageC_Implementation()
 {

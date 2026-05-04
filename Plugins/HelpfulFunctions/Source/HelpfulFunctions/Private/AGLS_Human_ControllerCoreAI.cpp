@@ -1,4 +1,4 @@
-﻿
+
 
 
 #include "AGLS_Human_ControllerCoreAI.h"
@@ -19,12 +19,9 @@ const AGLS_HumanAI_MainBehaviorMode AAGLS_Human_ControllerCoreAI::BB_GetMainBeha
 {
     if (UBlackboardComponent* BB = GetBlackboardComponent())
     {
-        // Pobierz wartość jako int/uint8
         uint8 Value = BB->GetValueAsEnum(TEXT("MainBehaviorMode"));
-        // Rzutuj na Twój enum
         return static_cast<AGLS_HumanAI_MainBehaviorMode>(Value);
     }
-    // Jeśli Blackboard nie istnieje → zwróć None
     return AGLS_HumanAI_MainBehaviorMode::None;
 }
 
@@ -33,12 +30,9 @@ const AGLS_HumanAI_PatrolingMode AAGLS_Human_ControllerCoreAI::BB_GetPatrolingMo
 {
     if (UBlackboardComponent* BB = GetBlackboardComponent())
     {
-        // Pobierz wartość jako int/uint8
         uint8 Value = BB->GetValueAsEnum(TEXT("PatrolingMode"));
-        // Rzutuj na Twój enum
         return static_cast<AGLS_HumanAI_PatrolingMode>(Value);
     }
-    // Jeśli Blackboard nie istnieje → zwróć None
     return AGLS_HumanAI_PatrolingMode::None;
 }
 
@@ -47,12 +41,9 @@ const AGLS_HumanAI_FightingMode AAGLS_Human_ControllerCoreAI::BB_GetFightingMode
 {
     if (UBlackboardComponent* BB = GetBlackboardComponent())
     {
-        // Pobierz wartość jako int/uint8
         uint8 Value = BB->GetValueAsEnum(TEXT("FightingMode"));
-        // Rzutuj na Twój enum
         return static_cast<AGLS_HumanAI_FightingMode>(Value);
     }
-    // Jeśli Blackboard nie istnieje → zwróć None
     return AGLS_HumanAI_FightingMode::None;
 }
 
@@ -70,7 +61,6 @@ bool AAGLS_Human_ControllerCoreAI::ST_SetParameterAsObject(UStateTreeAIComponent
     if (!InComponent || ParameterName.IsNone())
         return false;
 
-    // 1) Dobierz się do chronionego StateTreeRef (UPROPERTY) przez refleksję
     FStructProperty* StateTreeRefProp =
         FindFProperty<FStructProperty>(UStateTreeComponent::StaticClass(), TEXT("StateTreeRef"));
     if (!StateTreeRefProp)
@@ -80,7 +70,6 @@ bool AAGLS_Human_ControllerCoreAI::ST_SetParameterAsObject(UStateTreeAIComponent
     if (!Ref || !Ref->IsValid())
         return false;
 
-    // 2) Weź workowalny Property Bag z referencji
     //    (w UE5.6 w referencji jest UPROPERTY o nazwie "Parameters")
     FStructProperty* ParamsProp =
         FindFProperty<FStructProperty>(FStateTreeReference::StaticStruct(), TEXT("Parameters"));
@@ -91,7 +80,6 @@ bool AAGLS_Human_ControllerCoreAI::ST_SetParameterAsObject(UStateTreeAIComponent
     if (!Params)
         return false;
 
-    // 3) Znajdź deskryptor parametru po nazwie i ustaw wartość jako UObject*
     const FPropertyBagPropertyDesc* Desc = Params->FindPropertyDescByName(ParameterName);
     if (!Desc)
         return false;                 // brak takiego parametru w assetcie

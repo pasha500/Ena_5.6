@@ -1,4 +1,4 @@
-// Copyright JakubW and Epic Games, Inc. All Rights Reserved.
+// Copyright Pasha and Epic Games, Inc. All Rights Reserved.
 
 using UnrealBuildTool;
 

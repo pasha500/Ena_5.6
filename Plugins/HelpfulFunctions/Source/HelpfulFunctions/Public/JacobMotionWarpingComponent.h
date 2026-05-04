@@ -1,4 +1,4 @@
-// Copyright Jakub W, All Rights Reserved. 
+// Copyright Pasha, All Rights Reserved. 
 
 #pragma once
 
@@ -67,10 +67,10 @@ protected:
 	virtual void ResetValues();
 
 	// PL: 
-	// Ustaw punkt relacji pomiedzy MotionWarping a TargetActor. Za ka¿dym razem kiedy bêdzie u¿ywany MotionWarping, zostanie pobrana aktualna 
-	// pozycja TargetActor, aby skorygowaæ ruch. Dodanie 'Const Offset' spowoduje przesuniecie pozycji Akora o ten wektor. Opcja 'Exclude 
-	// Root Motion' daje rezultat tylko wtedy gdy nasz Aktor odgrywa Animacjê z wyodrêbnionym RootMotion, który zosta³ zapisany jako Anim Curve. 
-	// W³¹czenie tego spowodujê usuniêcie przesuniecia RootMotion z aktualniej pozycji Aktora.
+	// Ustaw punkt relacji pomiedzy MotionWarping a TargetActor. Za kaï¿½dym razem kiedy bï¿½dzie uï¿½ywany MotionWarping, zostanie pobrana aktualna 
+	// pozycja TargetActor, aby skorygowaï¿½ ruch. Dodanie 'Const Offset' spowoduje przesuniecie pozycji Akora o ten wektor. Opcja 'Exclude 
+	// Root Motion' daje rezultat tylko wtedy gdy nasz Aktor odgrywa Animacjï¿½ z wyodrï¿½bnionym RootMotion, ktï¿½ry zostaï¿½ zapisany jako Anim Curve. 
+	// Wï¿½ï¿½czenie tego spowodujï¿½ usuniï¿½cie przesuniecia RootMotion z aktualniej pozycji Aktora.
 	//
 	// ENG:
 	// Set a relationship point between MotionWarping and TargetActor. Each time MotionWarping is used, the current TargetActor position will 

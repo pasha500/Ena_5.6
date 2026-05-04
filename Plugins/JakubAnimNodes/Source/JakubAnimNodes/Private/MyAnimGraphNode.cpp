@@ -67,7 +67,7 @@ void UAnimGraphNode_LayeredBone::PostEditChangeProperty(struct FPropertyChangedE
 
 FString UAnimGraphNode_LayeredBone::GetNodeCategory() const
 {
-	return TEXT("JakubW|Blends");
+	return TEXT("Pasha|Blends");
 }
 
 void UAnimGraphNode_LayeredBone::CustomizeDetails(IDetailLayoutBuilder& DetailBuilder)

@@ -18,7 +18,7 @@
 
 FString UJWAN_CurveSmootherGraph::GetNodeCategory() const
 {
-	return TEXT("JakubW|CurvesManipulation");
+	return TEXT("Pasha|CurvesManipulation");
 }
 
 FText UJWAN_CurveSmootherGraph::GetTooltipText() const

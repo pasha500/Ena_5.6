@@ -1,4 +1,4 @@
-﻿
+
 
 
 #include "AdvancedAI_TasksAndFunctions.h"
@@ -103,7 +103,6 @@ void UAdvancedAI_TasksAndFunctions::TryFindHindingPositionSync(bool& Succesful, 
 	if (!QueryParamsData) return;
 	if (!RefChar) { UE_LOG(LogTemp, Error, TEXT("TryFindHindingPositionSync: References character is NULL")); return; }
 
-	// Tworzymy instancję klasy przekazanej jako typ
 	UHidingLocSearch_EnemyProperties* OverrideInstance = NewObject<UHidingLocSearch_EnemyProperties>(this, CustomOverrideData);
 
 	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Step 1: Find Enemy Characters in Radius
@@ -341,7 +340,6 @@ void UAdvancedAI_TasksAndFunctions::TryFindHindingPositionSyncAdvanced(bool& Suc
 	if (!QueryParamsData) return;
 	if (!RefChar) { UE_LOG(LogTemp, Error, TEXT("TryFindHindingPositionSync: References character is NULL")); return; }
 
-	// Tworzymy instancję klasy przekazanej jako typ
 	UHidingLocSearch_EnemyProperties* OverrideInstance = NewObject<UHidingLocSearch_EnemyProperties>(this, CustomOverrideData);
 
 	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Step 1: Find Enemy Characters in Radius
@@ -537,7 +535,7 @@ void UAdvancedAI_TasksAndFunctions::TryFindHindingPositionSyncAdvanced(bool& Suc
 				CurrentTansform = FirstPossiblePoints[CurrentMinIndex];
 			}
 			
-			PathVisiblityWeight[i] = PointsWeight[CurrentMinIndex]; // WAŻNE !!!!!!
+			PathVisiblityWeight[i] = PointsWeight[CurrentMinIndex];
 
 			UNavigationPath* CurrentPath2 = TryFindPathToLocationSync(RefChar->GetActorLocation() - FVector(0, 0, CapHeight * 0.75), CurrentTansform.GetLocation());
 			if (CurrentPath2)
@@ -654,7 +652,6 @@ void UAdvancedAI_TasksAndFunctions::TryFindHindingPositionSyncAdvanced(bool& Suc
 bool UAdvancedAI_TasksAndFunctions::DetectedByFakeSightPerception(FVector TracingOrigin, UNavQuery_HidingLocSearchParams* QueryParamsData, TSubclassOf<UHidingLocSearch_EnemyProperties> CustomOverrideData)
 {
 
-	// Tworzymy instancję klasy przekazanej jako typ
 	UHidingLocSearch_EnemyProperties* OverrideInstance = NewObject<UHidingLocSearch_EnemyProperties>(this, CustomOverrideData);
 
 	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Step 1: Find Enemy Characters in Radius
@@ -892,7 +889,6 @@ bool UAdvancedAI_TasksAndFunctions::SubdividePath(TArray<FVector>& NewPoints, TA
 	NewPoints.Empty();
 	NewPoints.Add(InPoints[0]);
 
-	// Iteracja przez pary punktów
 	for (int i = 0; i < InPoints.Num() - 1; ++i)
 	{
 		FVector StartPoint = InPoints[i];
@@ -900,13 +896,10 @@ bool UAdvancedAI_TasksAndFunctions::SubdividePath(TArray<FVector>& NewPoints, TA
 
 		if (UseDynamic)
 		{
-			// Oblicz dystans pomiędzy dwoma punktami
 			float Distance = FVector::Dist(StartPoint, EndPoint);
 
-			// Oblicz liczbę segmentów do dodania na podstawie SubSegmentLength
 			int NumSegments = FMath::CeilToInt(Distance / SubSegmentLength);
 
-			// Dodaj dodatkowe punkty między StartPoint a EndPoint
 			for (int j = 1; j < NumSegments; ++j)
 			{
 				float Alpha = static_cast<float>(j) / NumSegments;
@@ -916,7 +909,6 @@ bool UAdvancedAI_TasksAndFunctions::SubdividePath(TArray<FVector>& NewPoints, TA
 		}
 		else
 		{
-			// Dodaj stałą liczbę punktów między StartPoint a EndPoint
 			for (int j = 1; j <= ConstSubdivider; ++j)
 			{
 				float Alpha = static_cast<float>(j) / (ConstSubdivider + 1);
@@ -925,7 +917,6 @@ bool UAdvancedAI_TasksAndFunctions::SubdividePath(TArray<FVector>& NewPoints, TA
 			}
 		}
 
-		// Dodaj końcowy punkt odcinka
 		NewPoints.Add(EndPoint);
 	}
 	return true;
@@ -1084,7 +1075,6 @@ UNavigationPath* UAdvancedAI_TasksAndFunctions::TryFindPathToLocationSync(FVecto
 	FPathFindingQuery Query;
 	ANavigationData* NavData = NavSys->GetDefaultNavDataInstance(FNavigationSystem::DontCreate);
 
-	// Znalezienie ścieżki synchroniczne
 	FNavLocation StartLocation(PathStart);
 	FNavLocation EndLocation(PathEnd);
 	UNavigationPath* PathResult = NavSys->FindPathToLocationSynchronously(NavSys, PathStart, PathEnd, nullptr, DefaultNavFilter);
@@ -1102,28 +1092,26 @@ UNavigationPath* UAdvancedAI_TasksAndFunctions::TryFindPathToLocationSync(FVecto
 
 void UAdvancedAI_TasksAndFunctions::TryFindPathToActorIncludingNavClimb(bool& Succesful, FClimbNav_FullPathData& QueryResult, AActor* StartActor, AActor* ActorToReach, AClimbNavigationStorageActor* CurrentClimbNav, bool bStartActorIsClimb, bool bEndActorIsClimb, UNavQuery_FullNavPathFinding* QueryParams)
 {
-	if (!StartActor || !ActorToReach || !QueryParams) //Obiekty które muszą być poprawne w celu możliwości wykonania dalszych obliczeń
+	if (!StartActor || !ActorToReach || !QueryParams)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("TryFindPathToActorIncludingNavClimb(): one of the inputs actors is not valid. Query abort"));
 		Succesful = false;
-		return; //Nie można uruchomić funkcji
+		return;
 	}
 
 	bool bShowsDebugs = false; // TO TYLKO DO KOSTRUKCJI
 
-	FClimbNav_FullPathData FQR; // <-- Struktura w której będą przechowywane wyliczone dane
+	FClimbNav_FullPathData FQR;
 
 	// CASE 01 (Non of actors is in climbing mode)
-	//Rozwarzenie przypadku szczególnego - Dwa obiekty zadeklarowały że NIE są w trybie wspinaczki. Jest to najprosztrza sytuacja, z tego względu że w tym przypadku 
-	// trzeba przeanalizować tylko zwykłe dane Nawigacyjne (Navigation Mesh). 
 	if (bStartActorIsClimb == false && bEndActorIsClimb == false)
 	{
 		UNavigationPath* GroundedNavPath = TryFindPathToLocationSync(StartActor->GetActorLocation() - FVector(0, 0, 50), ActorToReach->GetActorLocation() - FVector(0, 0, -50));
-		if (GroundedNavPath) //Sprawdzenie czy funkcja TryFindPathToLocationSync zwróciła poprawny obiekt
+		if (GroundedNavPath)
 		{
-			if (GroundedNavPath->PathPoints.Num() > 1) //Sprawdzenie czy jakakolwiek ścieżka została wyznaczona. Jeżeli punktów było by mniej od 2 wtedy nie ma możliwości utworzenia ścieżki
+			if (GroundedNavPath->PathPoints.Num() > 1)
 			{
-				FQR.GroundedPathPoints = GroundedNavPath->PathPoints; //Uzupełnienie struktury danymi z zapytania o ścieżkę
+				FQR.GroundedPathPoints = GroundedNavPath->PathPoints;
 				FQR.GroundedPathLenghtSegment = GroundedNavPath->GetPathLength();
 				FQR.TotalPathLenght = GroundedNavPath->GetPathLength();
 				FQR.TotalPathCost = GroundedNavPath->GetPathCost();
@@ -1186,17 +1174,14 @@ void UAdvancedAI_TasksAndFunctions::TryFindPathToActorIncludingNavClimb(bool& Su
 		{
 			ClimbNavDataActor = Cast<AClimbNavigationStorageActor>(CHR.GetActor()); 
 
-			if (ClimbNavDataActor) { break; } //Jeżeli obiekt został odnaleziony można przerwać dalsze poszukiwanie
+			if (ClimbNavDataActor) { break; }
 		}
-		if (!ClimbNavDataActor) //Wyświetlenie informacji że próba odnalezienia AClimbNavigationStorageActor* zakończyła się niepowodzeniem. Mimo to funkcja będzie kontynuowana
+		if (!ClimbNavDataActor)
 		{
 			Succesful = false;
 			UE_LOG(LogTemp, Warning, TEXT("TryFindPathToActorIncludingNavClimb(): Function required AClimbNavigationStorageActor* nearby ActorToReach, but searching for this instance is not finished property"));
 		}
 		
-		//Rozwarzenie przypadku szczególnego - Dwa obiekty zadeklarowały że są w trybie wspinaczki. W takim przypadku przwdopodobna jest sytuacja że zarówna StartActor oraz 
-		// ActorToReach są w przesrzeni tej samej instancji AClimbNavigationStorageActor. Oznacza to że może istnieć scieżka bezpośrenio łącząca ze sobą te dwa obiekty 
-		// używając tylko i wyłącznie trybu wspinaczki
 		if (bStartActorIsClimb == true && bEndActorIsClimb == true)
 		{
 			Succesful = TryBuildOnlyClimbPath(FQR, StartActor, ActorToReach, CurrentClimbNav, ClimbNavDataActor, QueryParams);
@@ -1204,12 +1189,11 @@ void UAdvancedAI_TasksAndFunctions::TryFindPathToActorIncludingNavClimb(bool& Su
 			{
 				Succesful = true;
 				QueryResult = FQR;
-				return; //Przypadek szczególny został spełniony - można zakończyć funkcję
+				return;
 			}
 		}
 
 
-		//Zadeklarowanie zmiennych lokalnych w których będą przechowywane punkty wyznaczone przez funkcję ProjectPointToNavigation
 		TArray<FVector> ProjectedPointForSelf;
 		TArray<FVector> ProjectedPointForTarget;
 
@@ -1290,7 +1274,6 @@ void UAdvancedAI_TasksAndFunctions::TryFindPathToActorIncludingNavClimb(bool& Su
 				return;
 			}
 
-			// Znalezienie najbliższego punktu na NavMesh
 			FNavLocation ProjectedPointResult;
 			FVector ProjectionTest = ActorToReach->GetActorLocation() - FVector(0,0,30);
 			bool ProjectionValid = NavSys->ProjectPointToNavigation(ProjectionTest, ProjectedPointResult, FVector(500,500,500));
@@ -1353,7 +1336,6 @@ bool UAdvancedAI_TasksAndFunctions::ProjectToNavigationWhenActorClimb(FVector& P
 			return false;
 		}
 
-		// Znalezienie najbliższego punktu na NavMesh
 		FNavLocation ProjectedPointResult;
 		bool ProjectionValid = NavSys->ProjectPointToNavigation(ProjectionTest, ProjectedPointResult, FixedExtend);
 
@@ -1393,7 +1375,6 @@ bool UAdvancedAI_TasksAndFunctions::TryBuildFullPathIncludeNavClimb(FClimbNav_Fu
 	if (!GroundedPath) { return false; }
 	if (GroundedPath->PathPoints.Num() < 2) { return false; }
 
-	//Trzeba sie upewnic że ścieżka jest w miarę kompletna (to znaczy że FinalPathPoint jest w sensownej pozycji od punktu CPPP
 	if (KML::Vector_Distance(GroundedPath->PathPoints[GroundedPath->PathPoints.Num() - 1], CPPP) > 150)
 	{
 		return false;
@@ -1444,9 +1425,7 @@ bool UAdvancedAI_TasksAndFunctions::TryBuildFullPathIncludeNavClimb(FClimbNav_Fu
 	//Substep 06
 	if (NClimbPathValid == true && NextClimbPathPoints.Num() > 1)
 	{
-		// Odległość od ostatniego punktu wspinaczki (LedgePoint), do aktualnej pozycji ActorToReach
 		float ValidDistance = KML::Vector_Distance(NextClimbPathPoints[NextClimbPathPoints.Num() - 1].ActorTransform.GetLocation(), ActorToReach->GetActorLocation());
-		// Odległość od pierwszego najbliżeszego punktu wspinaczki (LedgePoint), do ostatniego punktu ze ścieżki utworzonej na bazie NavigationMesh
 		float ValidDistance2 = KML::Vector_Distance(NextClimbPathPoints[0].ActorTransform.GetLocation(), GroundedPath->PathPoints[GroundedPath->PathPoints.Num() - 1]);
 
 		if (ValidDistance < QueryParams->MaxDistBetweenLedgeToTarget && ValidDistance2 < QueryParams->MaxDistBetweenProjectToLedge)
@@ -1690,5 +1669,4 @@ float UAdvancedAI_TasksAndFunctions::MakeDistributionWeightCorrected(FWeightFunc
 
 	return AsReturnValue;
 }
-
 

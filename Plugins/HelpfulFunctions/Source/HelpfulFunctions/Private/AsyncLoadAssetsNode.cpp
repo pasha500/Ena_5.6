@@ -24,7 +24,6 @@ void UAsyncLoadAssetsNode::Activate()
 
     if (Assets.Num() == 0)
     {
-        // Jeśli lista zasobów jest pusta, natychmiast zakończ
         OnCompleted.Broadcast(LoadedAssets);
         return;
     }
@@ -36,18 +35,15 @@ void UAsyncLoadAssetsNode::LoadNextAsset()
 {
     if (Assets.Num() == 0)
     {
-        // Wszystkie zasoby zostały załadowane
         OnCompleted.Broadcast(LoadedAssets);
         return;
     }
 
-    // Pobierz pierwszy zasób z listy
     TSoftObjectPtr<UObject> AssetToLoad = Assets[0];
     Assets.RemoveAt(0);
 
     if (AssetToLoad.IsValid())
     {
-        // Jeśli zasób jest już załadowany, dodaj go do wyników
         LoadedAssets.Add(AssetToLoad.Get());
         LoadNextAsset();
     }
@@ -60,7 +56,6 @@ void UAsyncLoadAssetsNode::LoadNextAsset()
             return;
         }
 
-        // Asynchronicznie załaduj zasób i wywołaj callback po zakończeniu
         StreamableManager.RequestAsyncLoad(
             AssetPath,
             FStreamableDelegate::CreateUObject(this, &UAsyncLoadAssetsNode::OnAssetLoaded, AssetToLoad)
@@ -79,7 +74,6 @@ void UAsyncLoadAssetsNode::OnAssetLoaded(TSoftObjectPtr<UObject> LoadedAsset)
         }
     }
 
-    // Przejdź do następnego zasobu
     LoadNextAsset();
 }
 

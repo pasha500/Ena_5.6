@@ -1,4 +1,4 @@
-// Copyright Jakub W, All Rights Reserved.
+// Copyright Pasha, All Rights Reserved.
 
 #include "HelpfulFunctionsBPLibrary.h"
 #include "HelpfulFunctions.h"
@@ -1086,25 +1086,24 @@ FVector UHelpfulFunctionsBPLibrary::SlerpToFast(FVector Current, FVector Target,
 
 FVector UHelpfulFunctionsBPLibrary::InterpolateBetweenPoints(const TArray<FVector>& Points, float Alpha)
 {
-	// Sprawdzenie, czy s¹ wystarczaj¹ce dane
 	if (Points.Num() < 2)
 	{
 		UE_LOG(LogTemp, Error, TEXT("InterpolateBetweenPoints: Array must contain at least two points."));
-		return FVector::ZeroVector; // Zwróæ domylny punkt
+		return FVector::ZeroVector;
 	}
 
 	// Ogranicz Alpha do zakresu [0.0, 1.0]
 	Alpha = FMath::Clamp(Alpha, 0.0f, 1.0f);
 
-	// Oblicz, gdzie znajduje siê Alpha w przedziale
+	// Oblicz, gdzie znajduje si챗 Alpha w przedziale
 	float ScaledAlpha = Alpha * (Points.Num() - 1);
-	int32 Index1 = FMath::FloorToInt(ScaledAlpha); // Indeks pocz¹tkowego punktu
-	int32 Index2 = FMath::Clamp(Index1 + 1, 0, Points.Num() - 1); // Indeks koñcowego punktu
+	int32 Index1 = FMath::FloorToInt(ScaledAlpha); // Indeks pocz쨔tkowego punktu
+	int32 Index2 = FMath::Clamp(Index1 + 1, 0, Points.Num() - 1); // Indeks ko챰cowego punktu
 
 	// Oblicz lokalny Alpha dla odcinka
 	float SegmentAlpha = ScaledAlpha - Index1;
 
-	// Interpoluj miêdzy dwoma punktami
+	// Interpoluj mi챗dzy dwoma punktami
 	return FMath::Lerp(Points[Index1], Points[Index2], SegmentAlpha);
 }
 
@@ -2023,23 +2022,23 @@ FVector UHelpfulFunctionsBPLibrary::SplineLerpOnPathPoints(const FVector& Start,
 
 FVector UHelpfulFunctionsBPLibrary::VInterpToWithDelay(const FVector& Current, const FVector& Target, float DeltaTime, float InterpSpeed)
 {
-	// Zabezpieczenie przed dzieleniem przez zero i nieprawid³owymi wartociami
+	// Zabezpieczenie przed dzieleniem przez zero i nieprawid쨀owymi warto혵ciami
 	if (DeltaTime == 0.f || InterpSpeed <= 0.f)
 	{
 		return Current;
 	}
 
-	// Obliczanie si³y interpolacji dla ka¿dej sk³adowej niezale¿nie
+	// Obliczanie si쨀y interpolacji dla ka쩔dej sk쨀adowej niezale쩔nie
 	auto InterpSingle = [DeltaTime, InterpSpeed](float CurrentSingle, float TargetSingle) -> float {
 		const float Distance = TargetSingle - CurrentSingle;
 
-		// Sprawdzanie, czy jestemy wystarczaj¹co blisko celu
+		// Sprawdzanie, czy jeste혵my wystarczaj쨔co blisko celu
 		if (FMath::IsNearlyZero(Distance))
 		{
 			return TargetSingle;
 		}
 
-		// 'Alpha' kontroluje kszta³t krzywej interpolacji
+		// 'Alpha' kontroluje kszta쨀t krzywej interpolacji
 		const float Alpha = FMath::Clamp(DeltaTime * InterpSpeed, 0.f, 1.f);
 
 		// Implementacja funkcji sigmoidalnej
@@ -2048,7 +2047,7 @@ FVector UHelpfulFunctionsBPLibrary::VInterpToWithDelay(const FVector& Current, c
 		return CurrentSingle + Distance * ScaledAlpha;
 		};
 
-	// Interpolacja dla ka¿dej osi niezale¿nie
+	// Interpolacja dla ka쩔dej osi niezale쩔nie
 	return FVector(
 		InterpSingle(Current.X, Target.X),
 		InterpSingle(Current.Y, Target.Y),
@@ -2206,7 +2205,7 @@ bool UHelpfulFunctionsBPLibrary::CheckFloorTypeC(UObject* WorldContextObject, FV
 
 	FVector CollisionCheckingPoint = FVector(0, 0, 0);
 	FVector CollisionPoint;
-	FVector Center = FVector(0,0,0); //Naprawa dla UE5.5 - Nie by³a zadeklarowana wartoæ bazowa
+	FVector Center = FVector(0,0,0); //Naprawa dla UE5.5 - Nie by쨀a zadeklarowana warto혵챈 bazowa
 	float Radius = 0.0;
 	TArray<FVector> ForwardArray;
 
@@ -2284,7 +2283,6 @@ void UHelpfulFunctionsBPLibrary::TryMarkPackageDirty(UObject* WorldContextObject
 
 UActorComponent* UHelpfulFunctionsBPLibrary::CreateComponentAndAddToActor(AActor* TargetActor, TSubclassOf<UActorComponent> ComponentClass, FTransform RelativeTransform, FName ComponentName)
 {
-	// Sprawdzenie, czy aktor i klasa komponentu s¹ prawid³owe
 	if (!TargetActor || !*ComponentClass)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("Invalid actor or component class passed to AddComponentToActor!"));
@@ -2299,32 +2297,29 @@ UActorComponent* UHelpfulFunctionsBPLibrary::CreateComponentAndAddToActor(AActor
 		return nullptr;
 	}
 
-	// Jeli komponent to USceneComponent (tylko takie mog¹ mieæ transform)
+	// Je혵li komponent to USceneComponent (tylko takie mog쨔 mie챈 transform)
 	if (USceneComponent* SceneComponent = Cast<USceneComponent>(NewComponent))
 	{
 		// Ustawienie transformacji
 		SceneComponent->SetupAttachment(TargetActor->GetRootComponent());
 		SceneComponent->SetRelativeTransform(RelativeTransform);
 
-		// Zarejestrowanie komponentu, aby by³ widoczny i dzia³a³ poprawnie
+		// Zarejestrowanie komponentu, aby by쨀 widoczny i dzia쨀a쨀 poprawnie
 		SceneComponent->RegisterComponent();
 	}
 	else
 	{
-		// Jeli nie jest to SceneComponent, tylko rejestrujemy
+		// Je혵li nie jest to SceneComponent, tylko rejestrujemy
 		NewComponent->RegisterComponent();
 	}
 
-	// Dodanie komponentu jako instancji, aby by³ trwa³y
+	// Dodanie komponentu jako instancji, aby by쨀 trwa쨀y
 	TargetActor->AddInstanceComponent(NewComponent);
 
-	// Oznaczenie aktora jako "brudny", aby Unreal Engine wiedzia³, ¿e nale¿y go zapisaæ
 	TargetActor->MarkPackageDirty();
 
-	// Zwrócenie nowo utworzonego komponentu
 	return NewComponent;
 }
-
 
 
 

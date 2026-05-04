@@ -1,4 +1,4 @@
-// Copyright Jakub W, All Rights Reserved. 
+// Copyright Pasha, All Rights Reserved. 
 
 #pragma once
 
@@ -197,7 +197,7 @@ public:
 	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Matched|Update", meta = (DisplayName = "Matching Motion Normalized", Keywords = "Matched Update"))
 		void MatchingMotionNormalized(float CurrentTime);
 
-	//Utworz funkcje czasu - s³u¿¹ do zdefiniowania timera
+	//Utworz funkcje czasu - sï¿½uï¿½ï¿½ do zdefiniowania timera
 	void TimerFunction1();
 	void TimerFunction2();
 

@@ -46,7 +46,7 @@ void UJWAN_LayerBlendingGraph::ValidateAnimNodeDuringCompilation(USkeleton* ForS
 
 FString UJWAN_LayerBlendingGraph::GetNodeCategory() const
 {
-    return TEXT("JakubW|Blends");
+    return TEXT("Pasha|Blends");
 }
 
 #undef LOCTEXT_NAMESPACE

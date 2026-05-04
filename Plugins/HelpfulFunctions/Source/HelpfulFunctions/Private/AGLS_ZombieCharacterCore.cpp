@@ -1,4 +1,4 @@
-﻿
+
 
 
 #include "AGLS_ZombieCharacterCore.h"
@@ -481,8 +481,6 @@ void AAGLS_ZombieCharacterCore::UpdateCharacterMovementPerFrame(CALS_Gait Allowe
 
 }
 
-// Bazowa funkcja łącząca ze sobą wiele wyżej zaimplementowanych funkcji. Jej działanie polega na finalnym ustaleniu poprawnych parametrów
-// dotychących głównie Character Movement Component
 void AAGLS_ZombieCharacterCore::UpdateGroundedMovement_Implementation()
 {
 	CALS_Gait AGait = GetAllowedGait();
@@ -786,17 +784,14 @@ TArray<FName> AAGLS_ZombieCharacterCore::GetChildBoneNames(FName BoneName, bool 
 {
 	TArray<FName> Result;
 
-	// Upewniamy się, że mamy SkeletalMeshComponent (domyślnie GetMesh() w ACharacter).
 	const USkeletalMeshComponent* SKC = GetMesh();
 	if (!SKC)
 	{
-		return Result; // zwraca pustą tablicę
+		return Result;
 	}
-	// Pobieramy indeks kości w SkeletalMesh.
 	const int32 BoneIndex = SKC->GetBoneIndex(BoneName);
 	if (BoneIndex == INDEX_NONE)
 	{
-		// Kość o podanej nazwie nie istnieje w tym mesh-u.
 		return Result;
 	}
 	// Od UE5.1 nazwa funkcji to GetSkeletalMeshAsset():
@@ -805,19 +800,15 @@ TArray<FName> AAGLS_ZombieCharacterCore::GetChildBoneNames(FName BoneName, bool 
 	if (!SkelMesh)
 	{ return Result; }
 
-	// Pobieramy referencyjny szkielet, by móc wyłuskać listę dziecka/rodzica.
 	FReferenceSkeleton RefSkeleton = SkelMesh->GetRefSkeleton();
 
-	// Zbierzemy indeksy wszystkich kości-potomków (rekurencyjnie).
 	TArray<int32> ChildIndices;
 	RefSkeleton.GetDirectChildBones(BoneIndex, ChildIndices);
 
-	// Jeśli chcemy dołączyć samą kość źródłową do wyniku.
 	if (bIncludeSelf)
 	{
 		Result.Add(RefSkeleton.GetBoneName(BoneIndex));
 	}
-	// Dodajemy nazwy kości-potomków do wyniku
 	for (int32 ChildBoneIndex : ChildIndices)
 	{
 		const FName ChildBoneName = RefSkeleton.GetBoneName(ChildBoneIndex);
@@ -829,7 +820,6 @@ TArray<FName> AAGLS_ZombieCharacterCore::GetChildBoneNames(FName BoneName, bool 
 
 FTransform AAGLS_ZombieCharacterCore::GetRefBoneTransformInLocalSpace(USkeletalMeshComponent* InSkeletalMesh, FName BoneName) const
 {
-	// Jeśli brak poprawnego wskaźnika do komponentu, zwracamy identity
 	if (!InSkeletalMesh)
 	{
 		return FTransform::Identity;
@@ -845,15 +835,12 @@ FTransform AAGLS_ZombieCharacterCore::GetRefBoneTransformInLocalSpace(USkeletalM
 	// Pobieramy referencyjny szkielet
 	const FReferenceSkeleton& RefSkeleton = SkelMesh->GetRefSkeleton();
 
-	// Znajdź indeks kości na podstawie nazwy
 	const int32 BoneIndex = InSkeletalMesh->GetBoneIndex(BoneName);
 	if (BoneIndex == INDEX_NONE)
 	{
-		// Nie znaleziono takiej kości w skeletonie
 		return FTransform::Identity;
 	}
 
-	// Tablica transformów referencyjnych (każdy jest względem rodzica)
 	const TArray<FTransform>& RefBonePoses = RefSkeleton.GetRefBonePose();
 
 	// Akumulacja transform
@@ -862,7 +849,6 @@ FTransform AAGLS_ZombieCharacterCore::GetRefBoneTransformInLocalSpace(USkeletalM
 	int32 CurrentIndex = BoneIndex;
 	while (CurrentIndex != INDEX_NONE)
 	{
-		// Mnożymy transform bieżącej kości (relative to parent) do akumulacji
 		AccumulatedTransform = AccumulatedTransform * RefBonePoses[CurrentIndex];
 
 		//GEngine->AddOnScreenDebugMessage(-1, 0.0, FColor::Green, GetMesh()->GetBoneName(CurrentIndex).ToString());
@@ -870,8 +856,6 @@ FTransform AAGLS_ZombieCharacterCore::GetRefBoneTransformInLocalSpace(USkeletalM
 		CurrentIndex = RefSkeleton.GetParentIndex(CurrentIndex);
 	}
 
-	// AccumulatedTransform = "global" transform kości (w ref pozie),
-	// liczone od root-a do wskazanej kości.
 	return AccumulatedTransform;
 }
 
@@ -1175,4 +1159,3 @@ void AAGLS_ZombieCharacterCore::BPI_AI_Get_MainTagsContainerData_Implementation(
 	TagsContainer = TagsContainerData;
 	return;
 }
-

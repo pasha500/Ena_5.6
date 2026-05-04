@@ -1,4 +1,4 @@
-// JakubW
+// Pasha
 
 #include "IWALS_AnimLayersClassData.h"
 #include "GameFramework/Character.h"

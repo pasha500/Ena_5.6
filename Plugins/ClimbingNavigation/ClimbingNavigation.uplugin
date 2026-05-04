@@ -5,7 +5,7 @@
 	"FriendlyName": "Advanced AI Logic",
 	"Description": "Contains elements that allow you to create navigation for climbing systems. Based on the generated navigation, it allows you to calculate a path along which you can climb to reach a target point. It also has many other elements needed for the proper operation of the AGLS project, including: Automatic generation of NavLinks, improved AI perception module, or a component allowing the character to move on ClimbNav",
 	"Category": "AI",
-	"CreatedBy": "JakubW",
+	"CreatedBy": "Pasha",
 	"CreatedByURL": "",
 	"DocsURL": "",
 	"MarketplaceURL": "",

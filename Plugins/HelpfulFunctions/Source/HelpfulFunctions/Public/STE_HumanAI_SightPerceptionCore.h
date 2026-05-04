@@ -1,4 +1,4 @@
-﻿
+
 
 #pragma once
 
@@ -32,9 +32,6 @@ binds from ST __________________ working on copied values    ___________________
 			 |_________________|                            |____________________|                            |_____________________|
 
 PL:
-Kod klasy Evaluator dla StateTree, realizujący aktualizajcę wartość zmiennych związanych z SightPerception. Cała implementacja jest przygotowana 
-tylko pod działanie z HumanAI. Głównym rezultatem działania tego Evaluator jest prawidłowe wypełnienie struktury SightPerceptionRef. Dodatkowo 
-jeżeli BackboardData != nullptr, to wtedy ustawiane są wartości dla niektórych kluczy np:
 - (object)StateTreePercpetionEvaluatorRef,
 - (bool)EnemyIsPhysicallySeen,
 - (bool)IsCurrentlySeeEnemy,

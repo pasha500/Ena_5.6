@@ -1,4 +1,4 @@
-// JakubW
+// Pasha
 
 #pragma once
 

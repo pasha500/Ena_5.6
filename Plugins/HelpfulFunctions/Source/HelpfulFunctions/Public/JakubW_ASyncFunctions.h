@@ -18,7 +18,7 @@ public:
 	UPROPERTY(BlueprintAssignable)
 		FDelayOneFrameOutputPin AfterOneFrame;
 
-	UFUNCTION(BlueprintCallable, meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject"), Category = "JakubW_FunctionsLibrary| Flow Control")
+	UFUNCTION(BlueprintCallable, meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject"), Category = "Pasha_FunctionsLibrary| Flow Control")
 		static UJakubW_ASyncFunctions* WaitForOneFrame(const UObject* WorldContextObject, const float SomeInputVariables);
 
 	// UBlueprintAsyncActionBase interface
