@@ -242,7 +242,7 @@ namespace
         }
     }
 
-    bool IsInsideWaterPhysicsVolume(UWorld* World, const FVector& Location, float SphereRadius = 20.0f)
+    bool RoomActor_IsInsideWaterPhysicsVolume(UWorld* World, const FVector& Location, float SphereRadius = 20.0f)
     {
         if (!World) return false;
 
@@ -1907,7 +1907,7 @@ namespace
         return AppliedCount;
     }
 
-    bool BuildWorldFootprintFromLocalBounds(const FBox& LocalBounds, const FTransform& WorldTransform, FBox2D& OutFootprint)
+    bool RoomActor_BuildWorldFootprintFromLocalBounds(const FBox& LocalBounds, const FTransform& WorldTransform, FBox2D& OutFootprint)
     {
         if (!LocalBounds.IsValid)
         {
@@ -1945,17 +1945,17 @@ namespace
         return true;
     }
 
-    bool TryBuildFootprintFromStaticMesh(const UStaticMesh* Mesh, const FTransform& WorldTransform, FBox2D& OutFootprint)
+    bool RoomActor_TryBuildFootprintFromStaticMesh(const UStaticMesh* Mesh, const FTransform& WorldTransform, FBox2D& OutFootprint)
     {
         if (!Mesh)
         {
             return false;
         }
 
-        return BuildWorldFootprintFromLocalBounds(Mesh->GetBoundingBox(), WorldTransform, OutFootprint);
+        return RoomActor_BuildWorldFootprintFromLocalBounds(Mesh->GetBoundingBox(), WorldTransform, OutFootprint);
     }
 
-    bool TryBuildFootprintFromActor(const AActor* Actor, FBox2D& OutFootprint)
+    bool RoomActor_TryBuildFootprintFromActor(const AActor* Actor, FBox2D& OutFootprint)
     {
         if (!IsValid(Actor))
         {
@@ -2091,7 +2091,7 @@ namespace
         {
             return true;
         }
-        if (IsInsideWaterPhysicsVolume(World, Hit.ImpactPoint, 120.0f) && !IsLandscapeLikeHit(Hit))
+        if (RoomActor_IsInsideWaterPhysicsVolume(World, Hit.ImpactPoint, 120.0f) && !IsLandscapeLikeHit(Hit))
         {
             return true;
         }
@@ -2240,7 +2240,7 @@ namespace
         return false;
     }
 
-    bool IsFootprintOverlappingAny(const TArray<FBox2D>& ExistingFootprints, const FBox2D& CandidateFootprint, float Padding)
+    bool RoomActor_IsFootprintOverlappingAny(const TArray<FBox2D>& ExistingFootprints, const FBox2D& CandidateFootprint, float Padding)
     {
         if (!CandidateFootprint.bIsValid)
         {
@@ -3307,7 +3307,7 @@ AActor* ARaidRoomActor::SpawnProceduralDoorBlocker(const FModularMeshKit& ThemeK
 
     if (bHitGround)
     {
-        if (IsWaterHit(GroundHit) || (IsInsideWaterPhysicsVolume(World, GroundHit.ImpactPoint, 80.0f) && !IsLandscapeLikeHit(GroundHit)))
+        if (IsWaterHit(GroundHit) || (RoomActor_IsInsideWaterPhysicsVolume(World, GroundHit.ImpactPoint, 80.0f) && !IsLandscapeLikeHit(GroundHit)))
         {
             return nullptr;
         }
@@ -3695,7 +3695,7 @@ AActor* ARaidRoomActor::AddMeshInstance(const FMeshVariation& Variation, const F
                     const bool bFlattenOverlapBlocked =
                         bAvoidOverlappingEditorLandscapeFlatten &&
                         bHasCandidateFlattenFootprint &&
-                        IsFootprintOverlappingAny(
+                        RoomActor_IsFootprintOverlappingAny(
                             AppliedTerrainFlattenFootprints,
                             CandidateFlattenFootprint,
                             FlattenOverlapPadding);
@@ -3947,7 +3947,7 @@ AActor* ARaidRoomActor::AddMeshInstance(const FMeshVariation& Variation, const F
 
                 if (CandidateMeshForBounds)
                 {
-                    bHasCandidateObstacleFootprint = TryBuildFootprintFromStaticMesh(CandidateMeshForBounds, WorldTransform, CandidateObstacleFootprint);
+                    bHasCandidateObstacleFootprint = RoomActor_TryBuildFootprintFromStaticMesh(CandidateMeshForBounds, WorldTransform, CandidateObstacleFootprint);
                 }
                 if (!bHasCandidateObstacleFootprint)
                 {
@@ -3964,7 +3964,7 @@ AActor* ARaidRoomActor::AddMeshInstance(const FMeshVariation& Variation, const F
                     ? FMath::Clamp(MinSpacing * 0.24f, 80.0f, 480.0f)
                     : FMath::Clamp(MinSpacing * 0.18f, 35.0f, 260.0f);
                 if (bHasCandidateObstacleFootprint &&
-                    IsFootprintOverlappingAny(SpawnedObstacleFootprints, CandidateObstacleFootprint, FootprintPadding))
+                    RoomActor_IsFootprintOverlappingAny(SpawnedObstacleFootprints, CandidateObstacleFootprint, FootprintPadding))
                 {
                     return nullptr;
                 }
@@ -4039,7 +4039,7 @@ AActor* ARaidRoomActor::AddMeshInstance(const FMeshVariation& Variation, const F
         {
             if (UStaticMesh* CandidateMesh = Variation.Mesh.LoadSynchronous())
             {
-                bHasNonObstacleFootprint = TryBuildFootprintFromStaticMesh(CandidateMesh, WorldTransform, CandidateNonObstacleFootprint);
+                bHasNonObstacleFootprint = RoomActor_TryBuildFootprintFromStaticMesh(CandidateMesh, WorldTransform, CandidateNonObstacleFootprint);
             }
         }
 
@@ -4060,7 +4060,7 @@ AActor* ARaidRoomActor::AddMeshInstance(const FMeshVariation& Variation, const F
             const float FootprintPadding = (MeshType == 6)
                 ? 120.0f
                 : (MeshType == 8 ? 90.0f : 70.0f);
-            if (IsFootprintOverlappingAny(SpawnedObstacleFootprints, CandidateNonObstacleFootprint, FootprintPadding))
+            if (RoomActor_IsFootprintOverlappingAny(SpawnedObstacleFootprints, CandidateNonObstacleFootprint, FootprintPadding))
             {
                 return nullptr;
             }
@@ -4141,7 +4141,7 @@ AActor* ARaidRoomActor::AddMeshInstance(const FMeshVariation& Variation, const F
                             }
 
                             FBox2D ActorFootprint(EForceInit::ForceInit);
-                            if (!TryBuildFootprintFromActor(SpawnedActor, ActorFootprint) || !ActorFootprint.bIsValid)
+                            if (!RoomActor_TryBuildFootprintFromActor(SpawnedActor, ActorFootprint) || !ActorFootprint.bIsValid)
                             {
                                 return;
                             }
@@ -4232,7 +4232,7 @@ AActor* ARaidRoomActor::AddMeshInstance(const FMeshVariation& Variation, const F
                         if (bRunPostSpawnFlatten)
                         {
                             FBox2D ActorFootprint(EForceInit::ForceInit);
-                            const bool bHasActorFootprint = TryBuildFootprintFromActor(SpawnedActor, ActorFootprint);
+                            const bool bHasActorFootprint = RoomActor_TryBuildFootprintFromActor(SpawnedActor, ActorFootprint);
 
                             const FVector ActorLoc = SpawnedActor->GetActorLocation();
                             const FVector2D FlattenCenter2D = bHasActorFootprint
@@ -4276,7 +4276,7 @@ AActor* ARaidRoomActor::AddMeshInstance(const FMeshVariation& Variation, const F
                             const bool bFlattenOverlapBlocked =
                                 bAvoidOverlappingEditorLandscapeFlatten &&
                                 bHasCandidateFlattenFootprint &&
-                                IsFootprintOverlappingAny(
+                                RoomActor_IsFootprintOverlappingAny(
                                     AppliedTerrainFlattenFootprints,
                                     CandidateFlattenFootprint,
                                     FlattenOverlapPadding);
@@ -4481,7 +4481,7 @@ AActor* ARaidRoomActor::AddMeshInstance(const FMeshVariation& Variation, const F
                 if (MeshType == 2)
                 {
                     FBox2D FinalFootprint(EForceInit::ForceInit);
-                    bool bHasFinalFootprint = TryBuildFootprintFromActor(SpawnedActor, FinalFootprint);
+                    bool bHasFinalFootprint = RoomActor_TryBuildFootprintFromActor(SpawnedActor, FinalFootprint);
                     if (!bHasFinalFootprint && bHasCandidateObstacleFootprint)
                     {
                         FinalFootprint = CandidateObstacleFootprint;
@@ -4504,7 +4504,7 @@ AActor* ARaidRoomActor::AddMeshInstance(const FMeshVariation& Variation, const F
                         const float FinalPadding = bVariationBlueprint
                             ? FMath::Clamp(ObstacleMinSpacingForFootprint * 0.20f, 60.0f, 320.0f)
                             : FMath::Clamp(ObstacleMinSpacingForFootprint * 0.12f, 20.0f, 140.0f);
-                        if (IsFootprintOverlappingAny(SpawnedObstacleFootprints, FinalFootprint, FinalPadding))
+                        if (RoomActor_IsFootprintOverlappingAny(SpawnedObstacleFootprints, FinalFootprint, FinalPadding))
                         {
                             SpawnedActor->Destroy();
                             return nullptr;
@@ -4732,7 +4732,7 @@ AActor* ARaidRoomActor::AddMeshInstance(const FMeshVariation& Variation, const F
         }
         else
         {
-            bHasFinalFootprint = TryBuildFootprintFromStaticMesh(LoadedMesh, WorldTransform, FinalFootprint);
+            bHasFinalFootprint = RoomActor_TryBuildFootprintFromStaticMesh(LoadedMesh, WorldTransform, FinalFootprint);
         }
         if (!bHasFinalFootprint)
         {
@@ -4747,7 +4747,7 @@ AActor* ARaidRoomActor::AddMeshInstance(const FMeshVariation& Variation, const F
         if (bHasFinalFootprint)
         {
             const float FinalPadding = FMath::Clamp(ObstacleMinSpacingForFootprint * 0.12f, 20.0f, 140.0f);
-            if (IsFootprintOverlappingAny(SpawnedObstacleFootprints, FinalFootprint, FinalPadding))
+            if (RoomActor_IsFootprintOverlappingAny(SpawnedObstacleFootprints, FinalFootprint, FinalPadding))
             {
                 if (TargetISMC->IsValidInstance(AddedInstanceIndex))
                 {
@@ -5114,7 +5114,7 @@ void ARaidRoomActor::RunBlueprintTerrainStabilizationPass()
             }
 
             FBox2D CandidateFootprint(EForceInit::ForceInit);
-            TryBuildFootprintFromActor(CandidateActor, CandidateFootprint);
+            RoomActor_TryBuildFootprintFromActor(CandidateActor, CandidateFootprint);
             if (!CandidateFootprint.bIsValid)
             {
                 const FBox ActorBounds = CandidateActor->GetComponentsBoundingBox(true);
@@ -5290,7 +5290,7 @@ void ARaidRoomActor::RunBlueprintTerrainStabilizationPass()
                 const bool bFlattenOverlapBlocked =
                     bAvoidOverlappingEditorLandscapeFlatten &&
                     bHasCandidateFlattenFootprint &&
-                    IsFootprintOverlappingAny(
+                    RoomActor_IsFootprintOverlappingAny(
                         AppliedTerrainFlattenFootprints,
                         CandidateFlattenFootprint,
                         FlattenOverlapPadding);
@@ -5452,7 +5452,7 @@ void ARaidRoomActor::RunBlueprintTerrainStabilizationPass()
         ++ProcessedCount;
 
         FBox2D ActorFootprint(EForceInit::ForceInit);
-        TryBuildFootprintFromActor(Actor, ActorFootprint);
+        RoomActor_TryBuildFootprintFromActor(Actor, ActorFootprint);
         if (!ActorFootprint.bIsValid)
         {
             const FBox ActorBounds = Actor->GetComponentsBoundingBox(true);
@@ -5542,7 +5542,7 @@ void ARaidRoomActor::RunBlueprintTerrainStabilizationPass()
                         const bool bFlattenOverlapBlocked =
                             bAvoidOverlappingEditorLandscapeFlatten &&
                             bHasCandidateFlattenFootprint &&
-                            IsFootprintOverlappingAny(
+                            RoomActor_IsFootprintOverlappingAny(
                                 AppliedTerrainFlattenFootprints,
                                 CandidateFlattenFootprint,
                                 FlattenOverlapPadding);
@@ -5752,7 +5752,7 @@ void ARaidRoomActor::RunBlueprintTerrainStabilizationPass()
                 return false;
             }
 
-            if (TryBuildFootprintFromActor(Actor, OutFootprint) && OutFootprint.bIsValid)
+            if (RoomActor_TryBuildFootprintFromActor(Actor, OutFootprint) && OutFootprint.bIsValid)
             {
                 return true;
             }
@@ -5818,7 +5818,7 @@ void ARaidRoomActor::RunBlueprintTerrainStabilizationPass()
                 const float SeparationPadding = ResolveBlueprintSeparationPadding(Pending.MeshType);
                 const float HardPadding = 0.0f;
                 const bool bOverlapsPriorFootprints =
-                    IsFootprintOverlappingAny(AcceptedFootprints, ActorFootprint, SeparationPadding);
+                    RoomActor_IsFootprintOverlappingAny(AcceptedFootprints, ActorFootprint, SeparationPadding);
                 if (!bOverlapsPriorFootprints)
                 {
                     AcceptedFootprints.Add(ActorFootprint);
@@ -5860,7 +5860,7 @@ void ARaidRoomActor::RunBlueprintTerrainStabilizationPass()
                             }
                         }
 
-                        if (IsFootprintOverlappingAny(AcceptedFootprints, CandidateFootprint, CheckPadding))
+                        if (RoomActor_IsFootprintOverlappingAny(AcceptedFootprints, CandidateFootprint, CheckPadding))
                         {
                             continue;
                         }
@@ -5915,7 +5915,7 @@ void ARaidRoomActor::RunBlueprintTerrainStabilizationPass()
 
                     // Final hard guard: if still physically overlapping, cull this spawn to avoid visible intersections.
                     if (ActorFootprint.bIsValid &&
-                        IsFootprintOverlappingAny(AcceptedFootprints, ActorFootprint, HardPadding))
+                        RoomActor_IsFootprintOverlappingAny(AcceptedFootprints, ActorFootprint, HardPadding))
                     {
                         SpawnedDynamicActors.Remove(Actor);
                         Actor->Destroy();
