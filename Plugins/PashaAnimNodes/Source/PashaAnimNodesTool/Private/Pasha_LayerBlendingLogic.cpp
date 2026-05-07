@@ -1,5 +1,5 @@
 
-#include "JWAN_LayerBlendingLogic.h"
+#include "Pasha_LayerBlendingLogic.h"
 #include "AnimationRuntime.h"
 #include "Animation/AnimTrace.h"
 #include "UObject/ObjectMacros.h"
@@ -11,9 +11,9 @@
 #define DEFAULT_SOURCEINDEX 0xFF
 #define MIN_DESIRED_BONE_WEIGHT 0.005
 
-void FJWAN_LayerBlendingLogic::Initialize_AnyThread(const FAnimationInitializeContext& Context)
+void FPasha_LayerBlendingLogic::Initialize_AnyThread(const FAnimationInitializeContext& Context)
 {
-    //Funkcja inicjuj¹ca noda
+    //Funkcja inicjujï¿½ca noda
     AnimInst = Cast<UAnimInstance>(Context.AnimInstanceProxy->GetAnimInstanceObject());
     BaseLayerInput.Initialize(Context);
     OverlayLayerInput.Initialize(Context);
@@ -25,9 +25,9 @@ void FJWAN_LayerBlendingLogic::Initialize_AnyThread(const FAnimationInitializeCo
 
 }
 
-void FJWAN_LayerBlendingLogic::CacheBones_AnyThread(const FAnimationCacheBonesContext& Context)
+void FPasha_LayerBlendingLogic::CacheBones_AnyThread(const FAnimationCacheBonesContext& Context)
 {
-    //Funkcja inicjuj¹ca noda
+    //Funkcja inicjujï¿½ca noda
     //DECLARE_SCOPE_HIERARCHICAL_COUNTER_ANIMNODE(CacheBones_AnyThread)
     BaseLayerInput.CacheBones(Context);
     OverlayLayerInput.CacheBones(Context);
@@ -36,7 +36,7 @@ void FJWAN_LayerBlendingLogic::CacheBones_AnyThread(const FAnimationCacheBonesCo
     Skel = Context.AnimInstanceProxy->GetSkeleton();
 }
 
-void FJWAN_LayerBlendingLogic::Update_AnyThread(const FAnimationUpdateContext& Context)
+void FPasha_LayerBlendingLogic::Update_AnyThread(const FAnimationUpdateContext& Context)
 {
     GetEvaluateGraphExposedInputs().Execute(Context);
     BaseLayerInput.Update(Context);
@@ -61,7 +61,7 @@ void FJWAN_LayerBlendingLogic::Update_AnyThread(const FAnimationUpdateContext& C
     UpdateBlendWeightStrenght(BoneBlendWeightHandR, CurveValue(CurvesName.HandR));
 }
 
-void FJWAN_LayerBlendingLogic::Evaluate_AnyThread(FPoseContext& Output)
+void FPasha_LayerBlendingLogic::Evaluate_AnyThread(FPoseContext& Output)
 {
     FPoseContext PoseBase(Output);
     FPoseContext PoseOverlay(Output);
@@ -73,7 +73,7 @@ void FJWAN_LayerBlendingLogic::Evaluate_AnyThread(FPoseContext& Output)
     // Make Dynamic Additives Pose
     FPoseContext BaseAdditiveMS(Output);
     FPoseContext BaseAdditiveLSpace(Output);
-    //Utworzenie animacji Additive z wejœæ noda
+    //Utworzenie animacji Additive z wejï¿½ï¿½ noda
     MakeAdditiveContext(PoseDef, PoseBase, true, BaseAdditiveMS);
     MakeAdditiveContext(PoseDef, PoseBase, false, BaseAdditiveLSpace);
 
@@ -115,7 +115,7 @@ void FJWAN_LayerBlendingLogic::Evaluate_AnyThread(FPoseContext& Output)
 }
 
 
-void FJWAN_LayerBlendingLogic::GatherDebugData(FNodeDebugData& DebugData)
+void FPasha_LayerBlendingLogic::GatherDebugData(FNodeDebugData& DebugData)
 {
     FString DebugLine = DebugData.GetNodeName(this);
 
@@ -125,7 +125,7 @@ void FJWAN_LayerBlendingLogic::GatherDebugData(FNodeDebugData& DebugData)
     BaseLayerInput.GatherDebugData(DebugData);
 }
 
-void FJWAN_LayerBlendingLogic::BlendTwoPosesContext(FPoseContext& PoseA, FPoseContext& PoseB, float Alpha, FPoseContext& OP)
+void FPasha_LayerBlendingLogic::BlendTwoPosesContext(FPoseContext& PoseA, FPoseContext& PoseB, float Alpha, FPoseContext& OP)
 {
     if (Alpha == 0.0)
     {
@@ -146,7 +146,7 @@ void FJWAN_LayerBlendingLogic::BlendTwoPosesContext(FPoseContext& PoseA, FPoseCo
 }
 
 //MAKE ADDITIVE POSE FROM TWO ANIMATIONS
-void FJWAN_LayerBlendingLogic::MakeAdditiveContext(FPoseContext& Base, FPoseContext& Add, bool MeshSpace, FPoseContext& OP)
+void FPasha_LayerBlendingLogic::MakeAdditiveContext(FPoseContext& Base, FPoseContext& Add, bool MeshSpace, FPoseContext& OP)
 {
     FPoseContext BaseEvalContext(OP);
     BaseEvalContext = Base;
@@ -162,7 +162,7 @@ void FJWAN_LayerBlendingLogic::MakeAdditiveContext(FPoseContext& Base, FPoseCont
 }
 
 //LAYER BLENDING SINGLE - EVALUATE
-void FJWAN_LayerBlendingLogic::ApplyAdditiveWithSlotEvaluate(FPoseContext& OP, FPoseContext& LBase, FPoseContext& LOverlay, FPoseContext& LAdditive,
+void FPasha_LayerBlendingLogic::ApplyAdditiveWithSlotEvaluate(FPoseContext& OP, FPoseContext& LBase, FPoseContext& LOverlay, FPoseContext& LAdditive,
     float AddAlpha, float BlendAlpha, FName AnimSlotName, FSlotNodeWeightInfo SlotWeight, bool UseMeshSpace)
 {
     FPoseContext OverlayWithSlot(OP);
@@ -222,7 +222,7 @@ void FJWAN_LayerBlendingLogic::ApplyAdditiveWithSlotEvaluate(FPoseContext& OP, F
 }
 
 //LAYER BLENDING SINGLE - UPDATE
-void FJWAN_LayerBlendingLogic::ApplyAdditiveWithSlotUpdate(FPoseContext& LBase, FPoseContext& LOverlay, FPoseContext& LAdditive,
+void FPasha_LayerBlendingLogic::ApplyAdditiveWithSlotUpdate(FPoseContext& LBase, FPoseContext& LOverlay, FPoseContext& LAdditive,
     float AddAlpha, float BlendAlpha, FName AnimSlotName)
 {
     return;
@@ -230,7 +230,7 @@ void FJWAN_LayerBlendingLogic::ApplyAdditiveWithSlotUpdate(FPoseContext& LBase, 
 
 
 
-void FJWAN_LayerBlendingLogic::BlendPerBoneEvaluate(FPoseContext& OP, FPoseContext& PoseA, FPoseContext& PoseB, bool UseMeshSpaceRotation, bool UseMeshSpaceScaleBlend, 
+void FPasha_LayerBlendingLogic::BlendPerBoneEvaluate(FPoseContext& OP, FPoseContext& PoseA, FPoseContext& PoseB, bool UseMeshSpaceRotation, bool UseMeshSpaceScaleBlend, 
     TArray<FPerBoneBlendWeight> CurrentBoneBlendW, bool UseBlendByWeight, float BlendAlpha, FBlendedCurve CurvesA, FBlendedCurve CurvesB)
 {
     const int NumPoses = 1;
@@ -307,7 +307,7 @@ void FJWAN_LayerBlendingLogic::BlendPerBoneEvaluate(FPoseContext& OP, FPoseConte
 // ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 //Simple Curve Value From Anim Inst
-float FJWAN_LayerBlendingLogic::CurveValue(FName CurveName)
+float FPasha_LayerBlendingLogic::CurveValue(FName CurveName)
 {
     //return 1.0;
     if(IsValid(AnimInst)==true)
@@ -321,14 +321,14 @@ float FJWAN_LayerBlendingLogic::CurveValue(FName CurveName)
 // ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 // ||| L A Y E R   B L E N D   P E R   B O N E |||
-void FJWAN_LayerBlendingLogic::UpdateMaskWeightsValue(const FAnimationUpdateContext& C, TArray<FPerBoneBlendWeight>& DBBW, TArray<FPerBoneBlendWeight> CBBW, 
+void FPasha_LayerBlendingLogic::UpdateMaskWeightsValue(const FAnimationUpdateContext& C, TArray<FPerBoneBlendWeight>& DBBW, TArray<FPerBoneBlendWeight> CBBW, 
     TArray<float> BlendWeightsPerPose, bool BlendRootMotionBasedOnRoot, FGuid& InSkelGuid, FGuid& InVirtualBonesGuid, uint16& RBSN, TArray<uint8>& CPSI, 
     TArray<FInputBlendPose> InLayerSetup, float BlendAlpha)
 {
     return;
 }
 
-void FJWAN_LayerBlendingLogic::UpdateBlendWeightStrenght(TArray<FPerBoneBlendWeight>& BonesWeight, float Alpha)
+void FPasha_LayerBlendingLogic::UpdateBlendWeightStrenght(TArray<FPerBoneBlendWeight>& BonesWeight, float Alpha)
 {
     if (BonesWeight.Num() > 2)
     {
@@ -345,7 +345,7 @@ void FJWAN_LayerBlendingLogic::UpdateBlendWeightStrenght(TArray<FPerBoneBlendWei
     return;
 }
 
-bool FJWAN_LayerBlendingLogic::RebuildAllBlendWeights(const USkeleton* InSkeleton)
+bool FPasha_LayerBlendingLogic::RebuildAllBlendWeights(const USkeleton* InSkeleton)
 {
     RebuildPerBoneBlendWeights(InSkeleton, BoneBlendWeightPelvis, BlendFilterPelvis, SkeletonGuid, VirtualBoneGuid);
     RebuildPerBoneBlendWeights(InSkeleton, BoneBlendWeightSpine, BlendFilterSpine, SkeletonGuid, VirtualBoneGuid);
@@ -361,7 +361,7 @@ bool FJWAN_LayerBlendingLogic::RebuildAllBlendWeights(const USkeleton* InSkeleto
     return true;
 }
 
-void FJWAN_LayerBlendingLogic::UpdateLayerBlendCurvesSource(const FBoneContainer& RequiredBones, const USkeleton* Skeleton, TArray<FPerBoneBlendWeight> BonesWeight)
+void FPasha_LayerBlendingLogic::UpdateLayerBlendCurvesSource(const FBoneContainer& RequiredBones, const USkeleton* Skeleton, TArray<FPerBoneBlendWeight> BonesWeight)
 {
     // Build curve source indices
     {
@@ -390,7 +390,7 @@ void FJWAN_LayerBlendingLogic::UpdateLayerBlendCurvesSource(const FBoneContainer
 // ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 // ||| L A Y E R   B L E N D   P E R   B O N E |||  Rebuild cache per bone blend weights from the skeleton
-void FJWAN_LayerBlendingLogic::RebuildPerBoneBlendWeights(const USkeleton* InSkeleton, TArray<FPerBoneBlendWeight>& PBBW, TArray<FInputBlendPose> InLayerSetup, FGuid& InSkelGuid, FGuid& InVirtualBonesGuid)
+void FPasha_LayerBlendingLogic::RebuildPerBoneBlendWeights(const USkeleton* InSkeleton, TArray<FPerBoneBlendWeight>& PBBW, TArray<FInputBlendPose> InLayerSetup, FGuid& InSkelGuid, FGuid& InVirtualBonesGuid)
 {
     if (InSkeleton)
     {
@@ -400,14 +400,14 @@ void FJWAN_LayerBlendingLogic::RebuildPerBoneBlendWeights(const USkeleton* InSke
 // ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 // ||| L A Y E R   B L E N D   P E R   B O N E |||  Check whether per-bone blend weights are valid according to the skeleton (GUID check)
-bool FJWAN_LayerBlendingLogic::ArePerBoneBlendWeightsValid(const USkeleton* InSkeleton, FGuid& InSkelGuid, FGuid& InVirtualBonesGuid)
+bool FPasha_LayerBlendingLogic::ArePerBoneBlendWeightsValid(const USkeleton* InSkeleton, FGuid& InSkelGuid, FGuid& InVirtualBonesGuid)
 {
     return (InSkeleton != nullptr && InSkeleton->GetGuid() == InSkelGuid && InSkeleton->GetVirtualBoneGuid() == InVirtualBonesGuid);
 }
 // ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 // ||| L A Y E R   B L E N D   P E R   B O N E |||  Update Cached Bone Data
-void FJWAN_LayerBlendingLogic::UpdateCachedBoneData(const FBoneContainer& RequiredBones, const USkeleton* Skeleton, TArray<FPerBoneBlendWeight>& CurrentBoneBlendOutput, FGuid& InSkelGuid,
+void FPasha_LayerBlendingLogic::UpdateCachedBoneData(const FBoneContainer& RequiredBones, const USkeleton* Skeleton, TArray<FPerBoneBlendWeight>& CurrentBoneBlendOutput, FGuid& InSkelGuid,
     FGuid& InVirtualBonesGuid, uint16& RBSN, TArray<uint8>& CPSI, TArray<FInputBlendPose> InLayerSetup, float BlendAlpha)
 {
 
@@ -423,7 +423,7 @@ void FJWAN_LayerBlendingLogic::UpdateCachedBoneData(const FBoneContainer& Requir
 // ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 // ||| L A Y E R   B L E N D   P E R   B O N E ||| MACRO - CREATE LayerBlend Mask
-TArray<FInputBlendPose> FJWAN_LayerBlendingLogic::CreateLayerBlendValue(TArray<FName> BonesName, TArray<int> BlendDepth)
+TArray<FInputBlendPose> FPasha_LayerBlendingLogic::CreateLayerBlendValue(TArray<FName> BonesName, TArray<int> BlendDepth)
 {
     TArray<FInputBlendPose> LBP = {};
     FInputBlendPose AddBlendPose;
@@ -449,7 +449,7 @@ TArray<FInputBlendPose> FJWAN_LayerBlendingLogic::CreateLayerBlendValue(TArray<F
 // ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 //SLOT UPDATE
-void FJWAN_LayerBlendingLogic::SlotUpdate(const FAnimationUpdateContext& Context, FName SName, FPoseLink InputPose, FSlotNodeWeightInfo& Weight)
+void FPasha_LayerBlendingLogic::SlotUpdate(const FAnimationUpdateContext& Context, FName SName, FPoseLink InputPose, FSlotNodeWeightInfo& Weight)
 {
     // Update weights.
     Context.AnimInstanceProxy->GetSlotWeight(SName, Weight.SlotNodeWeight, Weight.SourceWeight, Weight.TotalNodeWeight);

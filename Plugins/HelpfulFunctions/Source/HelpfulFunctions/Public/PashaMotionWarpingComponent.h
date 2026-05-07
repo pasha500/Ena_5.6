@@ -6,17 +6,17 @@
 #include "Components/ActorComponent.h"
 #include "ALS_StructuresAndEnumsCpp.h"
 #include "Curves/CurveVector.h"
-#include "JacobMotionWarpingComponent.generated.h"
+#include "PashaMotionWarpingComponent.generated.h"
 
 
 UCLASS(ClassGroup = (Custom), meta = (BlueprintSpawnableComponent))
-class HELPFULFUNCTIONS_API UJacobMotionWarpingComponent : public UActorComponent
+class HELPFULFUNCTIONS_API UPashaMotionWarpingComponent : public UActorComponent
 {
 	GENERATED_BODY()
 
 public:
 	// Sets default values for this component's properties
-	UJacobMotionWarpingComponent();
+	UPashaMotionWarpingComponent();
 
 protected:
 	// Called when the game starts

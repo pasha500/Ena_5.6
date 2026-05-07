@@ -1,6 +1,6 @@
 
 
-#include "JWAN_CurveSmootherLogic.h"
+#include "Pasha_CurveSmootherLogic.h"
 #include "AnimationRuntime.h"
 #include "Animation/AnimInstanceProxy.h"
 #include "Animation/AnimInstance.h"

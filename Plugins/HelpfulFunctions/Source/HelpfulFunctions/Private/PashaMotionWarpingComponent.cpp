@@ -1,6 +1,6 @@
 // Copyright Pasha, All Rights Reserved. 
 
-#include "JacobMotionWarpingComponent.h"
+#include "PashaMotionWarpingComponent.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/Actor.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -16,7 +16,7 @@
 
 
 // Sets default values for this component's properties
-UJacobMotionWarpingComponent::UJacobMotionWarpingComponent()
+UPashaMotionWarpingComponent::UPashaMotionWarpingComponent()
 {
 	// Set this component to be initialized when the game starts, and to be ticked every frame.  You can turn these features
 	// off to improve performance if you don't need them.
@@ -27,7 +27,7 @@ UJacobMotionWarpingComponent::UJacobMotionWarpingComponent()
 
 
 // Called when the game starts
-void UJacobMotionWarpingComponent::BeginPlay()
+void UPashaMotionWarpingComponent::BeginPlay()
 {
 	Super::BeginPlay();
 	//Set References
@@ -36,7 +36,7 @@ void UJacobMotionWarpingComponent::BeginPlay()
 }
 
 //GET CURVE VALUE BY INDEX
-float UJacobMotionWarpingComponent::GetCurveValueByIndex(int ArrIndex)
+float UPashaMotionWarpingComponent::GetCurveValueByIndex(int ArrIndex)
 {
 	if (IsValid(CharacterC) == true && CurvesName.IsValidIndex(ArrIndex))
 	{
@@ -46,7 +46,7 @@ float UJacobMotionWarpingComponent::GetCurveValueByIndex(int ArrIndex)
 }
 
 //GET ORIGIN POSITION
-FVector UJacobMotionWarpingComponent::GetOriginPosition()
+FVector UPashaMotionWarpingComponent::GetOriginPosition()
 {
 	return WarpingTarget->GetActorLocation() +
 		UKismetMathLibrary::GetForwardVector(WarpingTarget->GetActorRotation()) * ConstOffset.X +
@@ -55,7 +55,7 @@ FVector UJacobMotionWarpingComponent::GetOriginPosition()
 }
 
 //GET TARGET AXIS
-void UJacobMotionWarpingComponent::GetTargetAxis(FVector& Forward, FVector& Right, FVector& Up, float ScaleXY)
+void UPashaMotionWarpingComponent::GetTargetAxis(FVector& Forward, FVector& Right, FVector& Up, float ScaleXY)
 {
 	Forward = UKismetMathLibrary::GetForwardVector(SavedWarpActorRot) * ScaleXY;
 	Right = UKismetMathLibrary::GetRightVector(SavedWarpActorRot) * ScaleXY*-1.0;
@@ -63,7 +63,7 @@ void UJacobMotionWarpingComponent::GetTargetAxis(FVector& Forward, FVector& Righ
 }
 
 //GET WARP ACTOR INFO
-FVector UJacobMotionWarpingComponent::GetWarpActorInfo(AActor* InActor, FVector Offset, FRotator Rotation)
+FVector UPashaMotionWarpingComponent::GetWarpActorInfo(AActor* InActor, FVector Offset, FRotator Rotation)
 {
 	if (IsValid(InActor) == true)
 	{
@@ -74,7 +74,7 @@ FVector UJacobMotionWarpingComponent::GetWarpActorInfo(AActor* InActor, FVector 
 }
 
 //GET WARP TARGET CURVE VALUE
-void UJacobMotionWarpingComponent::GetWarpTagetCurveValue(float& X, float& Y, float& Z)
+void UPashaMotionWarpingComponent::GetWarpTagetCurveValue(float& X, float& Y, float& Z)
 {
 	if (IsValid(WarpingTarget) == true)
 	{
@@ -88,7 +88,7 @@ void UJacobMotionWarpingComponent::GetWarpTagetCurveValue(float& X, float& Y, fl
 }
 
 //TRY FIX Z LOCATION
-FVector UJacobMotionWarpingComponent::TryFixZPosition(bool Use, FVector CharLocation)
+FVector UPashaMotionWarpingComponent::TryFixZPosition(bool Use, FVector CharLocation)
 {
 	FVector LocVector = CharLocation;
 	if (Use == true)
@@ -101,7 +101,7 @@ FVector UJacobMotionWarpingComponent::TryFixZPosition(bool Use, FVector CharLoca
 }
 
 //TRY CONVERT TO RELATIVE
-FCALS_ComponentAndTransform UJacobMotionWarpingComponent::TryConvertToRelative(FVector VectorWS)
+FCALS_ComponentAndTransform UPashaMotionWarpingComponent::TryConvertToRelative(FVector VectorWS)
 {
 	FCALS_ComponentAndTransform AsStruct = {};
 	AsStruct.Transform = FTransform(FRotator(0, 0, 0), VectorWS, FVector(1, 1, 1));
@@ -128,19 +128,19 @@ FCALS_ComponentAndTransform UJacobMotionWarpingComponent::TryConvertToRelative(F
 }
 
 //TIMER FUNCTION
-void UJacobMotionWarpingComponent::TimerFunction1()
+void UPashaMotionWarpingComponent::TimerFunction1()
 { return; }
 
 //TIMELINE BLEND IN
-void UJacobMotionWarpingComponent::TimelineBlendIn(float Duration)
+void UPashaMotionWarpingComponent::TimelineBlendIn(float Duration)
 {
 	BlendingDuration = Duration;
- 	GetWorld()->GetTimerManager().SetTimer(TimerHandle1, this, &UJacobMotionWarpingComponent::TimerFunction1, Duration, false);
+ 	GetWorld()->GetTimerManager().SetTimer(TimerHandle1, this, &UPashaMotionWarpingComponent::TimerFunction1, Duration, false);
 	SetComponentTickEnabled(true);
 }
 
 //PREDICTED SINGLE MOTION
-void UJacobMotionWarpingComponent::PredictedSingleMotionPosition(bool& Valid, bool& HaveRoom, FVector& ReturnLocation, ACharacter* WarpTargetActor, FVector ConstantOffset,
+void UPashaMotionWarpingComponent::PredictedSingleMotionPosition(bool& Valid, bool& HaveRoom, FVector& ReturnLocation, ACharacter* WarpTargetActor, FVector ConstantOffset,
 float NormalizedTime, UCurveVector* RootMotionChar, UCurveVector* RootMotionWarpRot, bool ExcludeWarpActorRoot, bool UseUpAxis, FRotator ApplyCustomRotator)
 {
 	FVector RootMotionA, RootMotionB = FVector(0, 0, 0);
@@ -179,7 +179,7 @@ float NormalizedTime, UCurveVector* RootMotionChar, UCurveVector* RootMotionWarp
 	return;
 }
 
-void UJacobMotionWarpingComponent::PredictedSingleMotionPositionAuto(bool& Valid, bool& HaveRoom, FVector& ReturnLocation, ACharacter* WarpTargetActor, UAnimSequence* AnimSeqAtt, 
+void UPashaMotionWarpingComponent::PredictedSingleMotionPositionAuto(bool& Valid, bool& HaveRoom, FVector& ReturnLocation, ACharacter* WarpTargetActor, UAnimSequence* AnimSeqAtt, 
 	UAnimSequence* AnimSeqVic, FVector WarpingOrigin, FVector ConstantOffset, float NormalizedTime, bool ExcludeWarpActorRoot, bool UseUpAxis, FRotator ApplyCustomRotator, bool InvertAxis)
 {
 	FVector RootMotionA, RootMotionB = FVector(0, 0, 0);
@@ -226,14 +226,14 @@ void UJacobMotionWarpingComponent::PredictedSingleMotionPositionAuto(bool& Valid
 }
 
 //RETURN VALUES
-void UJacobMotionWarpingComponent::ResetValues()
+void UPashaMotionWarpingComponent::ResetValues()
 {
 	LockWarpingActor = false;
 	ExcludedRootValue = FVector(0, 0, 0);
 }
 
 // >>>> SET UP MOTION WARPING <<<< 
-void UJacobMotionWarpingComponent::SetMotionWarpingTarget(FName WarpTargetName, AActor* TargetActor, FVector ConstantOffset, FRotator ConstRotOffset, bool ExcludeRootMotion)
+void UPashaMotionWarpingComponent::SetMotionWarpingTarget(FName WarpTargetName, AActor* TargetActor, FVector ConstantOffset, FRotator ConstRotOffset, bool ExcludeRootMotion)
 {
 	WarpingTarget = TargetActor;
 	ConstOffset = ConstantOffset;
@@ -255,7 +255,7 @@ void UJacobMotionWarpingComponent::SetMotionWarpingTarget(FName WarpTargetName, 
 }
 
 // >>>> SET UP MOTION WARPING <<<< 
-void UJacobMotionWarpingComponent::StopUpdatingWarpPoint(bool StopUpdating)
+void UPashaMotionWarpingComponent::StopUpdatingWarpPoint(bool StopUpdating)
 {
 	if (StopUpdating == false)
 	{
@@ -282,7 +282,7 @@ void UJacobMotionWarpingComponent::StopUpdatingWarpPoint(bool StopUpdating)
 }
 
 // >>>> MAIN FUNCTION - TICK <<<< 
-void UJacobMotionWarpingComponent::WarpingUpdate(FName X, FName Y, FName Z, FName R, bool UseUpAxis, bool WithSweep, bool WarpRotation, float StrengthAlpha, FName ConstAlphaCurve)
+void UPashaMotionWarpingComponent::WarpingUpdate(FName X, FName Y, FName Z, FName R, bool UseUpAxis, bool WithSweep, bool WarpRotation, float StrengthAlpha, FName ConstAlphaCurve)
 {
 	CurvesName = { X,Y,Z,R };
 	if (IsValid(WarpingTarget) == false)
@@ -377,7 +377,7 @@ void UJacobMotionWarpingComponent::WarpingUpdate(FName X, FName Y, FName Z, FNam
 }
 
 // Called every frame
-void UJacobMotionWarpingComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
+void UPashaMotionWarpingComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 	// ...

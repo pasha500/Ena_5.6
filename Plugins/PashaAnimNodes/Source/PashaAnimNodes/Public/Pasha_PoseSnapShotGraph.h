@@ -3,18 +3,18 @@
 #include "CoreMinimal.h"
 #include "UObject/ObjectMacros.h"
 #include "AnimGraphNode_Base.h"
-#include "PashaAnimNodesTool/Public/JWAN_PoseSnapShotLogic.h"
-#include "JWAN_PoseSnapShotGraph.generated.h"
+#include "PashaAnimNodesTool/Public/Pasha_PoseSnapShotLogic.h"
+#include "Pasha_PoseSnapShotGraph.generated.h"
 
 // This will be displayed in the AnimGraph
 UCLASS()
-class PASHAANIMNODES_API UJWAN_PoseSnapShotGraph : public UAnimGraphNode_Base
+class PASHAANIMNODES_API UPasha_PoseSnapShotGraph : public UAnimGraphNode_Base
 {
     GENERATED_BODY()
 
 public:
     UPROPERTY(EditAnywhere, Category = "Settings")
-    FJWAN_PoseSnapShotLogic Node;
+    FPasha_PoseSnapShotLogic Node;
 
     // Get the tooltip for this node
     virtual FText GetTooltipText() const override;

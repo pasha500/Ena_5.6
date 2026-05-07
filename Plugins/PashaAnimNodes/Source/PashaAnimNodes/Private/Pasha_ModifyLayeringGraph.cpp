@@ -1,6 +1,6 @@
 
 
-#include "JWAN_ModifyLayeringGraph.h"
+#include "Pasha_ModifyLayeringGraph.h"
 #include "Textures/SlateIcon.h"
 #include "GraphEditorActions.h"
 #include "ScopedTransaction.h"
@@ -15,28 +15,28 @@
 #define LOCTEXT_NAMESPACE "ModifyCurve"
 
 
-FString UJWAN_ModifyLayeringGraph::GetNodeCategory() const
+FString UPasha_ModifyLayeringGraph::GetNodeCategory() const
 {
 	return TEXT("Pasha|CurvesManipulation");
 }
 
-FText UJWAN_ModifyLayeringGraph::GetTooltipText() const
+FText UPasha_ModifyLayeringGraph::GetTooltipText() const
 {
 	return GetNodeTitle(ENodeTitleType::ListView);
 }
 
-FText UJWAN_ModifyLayeringGraph::GetNodeTitle(ENodeTitleType::Type TitleType) const
+FText UPasha_ModifyLayeringGraph::GetNodeTitle(ENodeTitleType::Type TitleType) const
 {
 	return LOCTEXT("AnimGraphNode_ModifyCurve_Title", "Modify Layering Curves");
 }
 
-FLinearColor UJWAN_ModifyLayeringGraph::GetNodeTitleColor() const
+FLinearColor UPasha_ModifyLayeringGraph::GetNodeTitleColor() const
 {
 	return FLinearColor(0.0, 0.22, 0.3, 1.0);
 }
 
 
-void UJWAN_ModifyLayeringGraph::GetNodeContextMenuActions(UToolMenu* Menu, UGraphNodeContextMenuContext* Context) const
+void UPasha_ModifyLayeringGraph::GetNodeContextMenuActions(UToolMenu* Menu, UGraphNodeContextMenuContext* Context) const
 {
 	if (!Context->bIsDebugging)
 	{
@@ -57,7 +57,7 @@ void UJWAN_ModifyLayeringGraph::GetNodeContextMenuActions(UToolMenu* Menu, UGrap
 				if (PinPropertyName == TEXT("None") && Context->Pin->Direction == EGPD_Input)
 				{
 					FString PinName = Context->Pin->PinFriendlyName.ToString();
-					//FUIAction Action = FUIAction(FExecuteAction::CreateUObject(const_cast<UJWAN_ModifyLayeringGraph*>(this), &UJWAN_ModifyLayeringGraph::RemoveCurvePin, FName(*PinName)));
+					//FUIAction Action = FUIAction(FExecuteAction::CreateUObject(const_cast<UPasha_ModifyLayeringGraph*>(this), &UPasha_ModifyLayeringGraph::RemoveCurvePin, FName(*PinName)));
 					FText RemovePinLabelText = FText::Format(LOCTEXT("RemoveThisPin", "Remove This Curve Pin: {0}"), FText::FromString(PinName));
 					//Section.AddMenuEntry("RemoveThisPin", RemovePinLabelText, LOCTEXT("RemoveThisPinTooltip", "Remove this curve pin from this node"), FSlateIcon(), Action);
 				}
@@ -68,7 +68,7 @@ void UJWAN_ModifyLayeringGraph::GetNodeContextMenuActions(UToolMenu* Menu, UGrap
 }
 
 
-void UJWAN_ModifyLayeringGraph::CustomizeDetails(IDetailLayoutBuilder& DetailBuilder)
+void UPasha_ModifyLayeringGraph::CustomizeDetails(IDetailLayoutBuilder& DetailBuilder)
 {
 	Super::CustomizeDetails(DetailBuilder);
 	TSharedRef<IPropertyHandle> NodeHandle = DetailBuilder.GetProperty(FName(TEXT("Node")), GetClass());
@@ -91,7 +91,7 @@ void UJWAN_ModifyLayeringGraph::CustomizeDetails(IDetailLayoutBuilder& DetailBui
 	}
 }
 
-void UJWAN_ModifyLayeringGraph::CustomizePinData(UEdGraphPin* Pin, FName SourcePropertyName, int32 ArrayIndex) const
+void UPasha_ModifyLayeringGraph::CustomizePinData(UEdGraphPin* Pin, FName SourcePropertyName, int32 ArrayIndex) const
 {
 	Super::CustomizePinData(Pin, SourcePropertyName, ArrayIndex);
 
@@ -116,7 +116,7 @@ void UJWAN_ModifyLayeringGraph::CustomizePinData(UEdGraphPin* Pin, FName SourceP
 	}
 }
 
-void UJWAN_ModifyLayeringGraph::PostEditChangeProperty(struct FPropertyChangedEvent& PropertyChangedEvent)
+void UPasha_ModifyLayeringGraph::PostEditChangeProperty(struct FPropertyChangedEvent& PropertyChangedEvent)
 {
 	const FName PropertyName = (PropertyChangedEvent.Property ? PropertyChangedEvent.Property->GetFName() : NAME_None);
 	// Reconstruct node to show updates to PinFriendlyNames.

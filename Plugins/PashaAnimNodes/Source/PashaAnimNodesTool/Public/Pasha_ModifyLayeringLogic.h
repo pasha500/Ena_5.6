@@ -6,7 +6,7 @@
 #include "UObject/ObjectMacros.h"
 #include "Animation/AnimNodeBase.h"
 #include "Animation/InputScaleBias.h"
-#include "JWAN_ModifyLayeringLogic.generated.h"
+#include "Pasha_ModifyLayeringLogic.generated.h"
 
 UENUM()
 enum class EModifyLayeringApplyMode : uint8

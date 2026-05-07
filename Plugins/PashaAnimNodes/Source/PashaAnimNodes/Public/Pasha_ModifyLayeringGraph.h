@@ -1,23 +1,25 @@
 
+//class PASHAANIMNODES_API Pasha_ModifyLayeringGraph
+
 
 #pragma once
 
 #include "CoreMinimal.h"
 #include "UObject/ObjectMacros.h"
 #include "AnimGraphNode_Base.h"
-#include "PashaAnimNodesTool/Public/JWAN_CurveSmootherLogic.h"
-#include "JWAN_CurveSmootherGraph.generated.h"
-
+#include "PashaAnimNodesTool/Public/Pasha_ModifyLayeringLogic.h"
+#include "Pasha_ModifyLayeringGraph.generated.h"
 
 class FMenuBuilder;
 
-UCLASS()
-class PASHAANIMNODES_API UJWAN_CurveSmootherGraph : public UAnimGraphNode_Base
+/** Easy way to modify curve values on a pose */
+UCLASS(MinimalAPI)
+class UPasha_ModifyLayeringGraph : public UAnimGraphNode_Base
 {
 	GENERATED_BODY()
 
-	UPROPERTY(EditAnywhere, Category = Settings)
-	FAnimNode_CurveSmoother Node;
+		UPROPERTY(EditAnywhere, Category = Settings)
+		FAnimNode_ModifyLayering Node;
 
 public:
 

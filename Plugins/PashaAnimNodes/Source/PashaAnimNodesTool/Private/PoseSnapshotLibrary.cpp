@@ -2,7 +2,7 @@
 
 #include "PoseSnapshotLibrary.h"
 #include "Animation/AnimNode_Inertialization.h"
-#include "PashaAnimNodesTool/Public/JWAN_PoseSnapShotLogic.h"
+#include "PashaAnimNodesTool/Public/Pasha_PoseSnapShotLogic.h"
 #include "Engine/World.h"
 #include "AnimationRuntime.h"
 #include "Animation/AnimInstance.h"
@@ -20,7 +20,7 @@ FPoseSnapshotReference UPoseSnapshotLibrary::ConvertToPoseSnapshot(const FAnimNo
 FPoseSnapshot UPoseSnapshotLibrary::GetSavedPoseSnapshot(const FPoseSnapshotReference& PoseSnapshot)
 {
 	FPoseSnapshot PSS;
-	PoseSnapshot.CallAnimNodeFunction<FJWAN_PoseSnapShotLogic>( TEXT("GetSavedPoseStructure"), [&PSS](FJWAN_PoseSnapShotLogic& InPoseSnap)
+	PoseSnapshot.CallAnimNodeFunction<FPasha_PoseSnapShotLogic>( TEXT("GetSavedPoseStructure"), [&PSS](FPasha_PoseSnapShotLogic& InPoseSnap)
 		{
 			PSS = InPoseSnap.GetSavedPoseStructure();
 		});

@@ -6,7 +6,7 @@
 #include "Animation/AnimNodeBase.h"
 #include "Animation/AnimTypes.h"
 #include "Animation/AnimData/BoneMaskFilter.h"
-#include "JWAN_LayerBlendingLogic.generated.h"
+#include "Pasha_LayerBlendingLogic.generated.h"
 
 USTRUCT(BlueprintType)
 struct FCurvesData
@@ -65,7 +65,7 @@ struct FSlotsName
 };
 
 USTRUCT(BlueprintType)
-struct PASHAANIMNODESTOOL_API FJWAN_LayerBlendingLogic : public FAnimNode_Base
+struct PASHAANIMNODESTOOL_API FPasha_LayerBlendingLogic : public FAnimNode_Base
 {
     GENERATED_BODY()
 

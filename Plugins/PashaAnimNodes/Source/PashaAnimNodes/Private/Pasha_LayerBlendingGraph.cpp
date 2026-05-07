@@ -1,25 +1,25 @@
 
-#include "JWAN_LayerBlendingGraph.h"
+#include "Pasha_LayerBlendingGraph.h"
 
 #define LOCTEXT_NAMESPACE "A3Nodes"
 
 
-FLinearColor UJWAN_LayerBlendingGraph::GetNodeTitleColor() const
+FLinearColor UPasha_LayerBlendingGraph::GetNodeTitleColor() const
 {
     return FLinearColor(0.0, 0.1, 0.3, 1.0);
 }
 
-FText UJWAN_LayerBlendingGraph::GetTooltipText() const
+FText UPasha_LayerBlendingGraph::GetTooltipText() const
 {
     return LOCTEXT("LayerBlending For ALS", "LayerBlending For ALS");
 }
 
-FText UJWAN_LayerBlendingGraph::GetNodeTitle(ENodeTitleType::Type TitleType) const
+FText UPasha_LayerBlendingGraph::GetNodeTitle(ENodeTitleType::Type TitleType) const
 {
     return LOCTEXT("Layer Blending", "Layer Blending");
 }
 
-void UJWAN_LayerBlendingGraph::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
+void UPasha_LayerBlendingGraph::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
 {
     Modify();
 
@@ -36,7 +36,7 @@ void UJWAN_LayerBlendingGraph::PostEditChangeProperty(FPropertyChangedEvent& Pro
     Super::PostEditChangeProperty(PropertyChangedEvent);
 }
 
-void UJWAN_LayerBlendingGraph::ValidateAnimNodeDuringCompilation(USkeleton* ForSkeleton, FCompilerResultsLog& MessageLog)
+void UPasha_LayerBlendingGraph::ValidateAnimNodeDuringCompilation(USkeleton* ForSkeleton, FCompilerResultsLog& MessageLog)
 {
     if (!Node.ArePerBoneBlendWeightsValid(ForSkeleton, Node.SkeletonGuid, Node.VirtualBoneGuid))
     {
@@ -44,7 +44,7 @@ void UJWAN_LayerBlendingGraph::ValidateAnimNodeDuringCompilation(USkeleton* ForS
     }
 }
 
-FString UJWAN_LayerBlendingGraph::GetNodeCategory() const
+FString UPasha_LayerBlendingGraph::GetNodeCategory() const
 {
     return TEXT("Pasha|Blends");
 }

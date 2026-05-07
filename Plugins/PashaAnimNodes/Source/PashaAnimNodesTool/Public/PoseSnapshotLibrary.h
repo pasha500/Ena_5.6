@@ -8,14 +8,14 @@
 #include "PoseSnapshotLibrary.generated.h"
 
 
-struct FJWAN_PoseSnapShotLogic;
+struct FPasha_PoseSnapShotLogic;
 
 USTRUCT(BlueprintType)
 struct FPoseSnapshotReference : public FAnimNodeReference
 {
 	GENERATED_BODY()
 
-	typedef FJWAN_PoseSnapShotLogic FInternalNodeType;
+	typedef FPasha_PoseSnapShotLogic FInternalNodeType;
 };
 
 

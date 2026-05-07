@@ -1,7 +1,7 @@
 
 
 
-#include "JWAN_CurveSmootherGraph.h"
+#include "Pasha_CurveSmootherGraph.h"
 #include "Textures/SlateIcon.h"
 #include "GraphEditorActions.h"
 #include "ScopedTransaction.h"
@@ -16,28 +16,28 @@
 #define LOCTEXT_NAMESPACE "CurveSmoother"
 
 
-FString UJWAN_CurveSmootherGraph::GetNodeCategory() const
+FString UPasha_CurveSmootherGraph::GetNodeCategory() const
 {
 	return TEXT("Pasha|CurvesManipulation");
 }
 
-FText UJWAN_CurveSmootherGraph::GetTooltipText() const
+FText UPasha_CurveSmootherGraph::GetTooltipText() const
 {
 	return GetNodeTitle(ENodeTitleType::ListView);
 }
 
-FText UJWAN_CurveSmootherGraph::GetNodeTitle(ENodeTitleType::Type TitleType) const
+FText UPasha_CurveSmootherGraph::GetNodeTitle(ENodeTitleType::Type TitleType) const
 {
 	return LOCTEXT("AnimGraphNode_CurveSmoother_Title", "Curve Smoother");
 }
 
-FLinearColor UJWAN_CurveSmootherGraph::GetNodeTitleColor() const
+FLinearColor UPasha_CurveSmootherGraph::GetNodeTitleColor() const
 {
 	return FLinearColor(0.0, 0.22, 0.3, 1.0);
 }
 
 
-void UJWAN_CurveSmootherGraph::GetNodeContextMenuActions(UToolMenu* Menu, UGraphNodeContextMenuContext* Context) const
+void UPasha_CurveSmootherGraph::GetNodeContextMenuActions(UToolMenu* Menu, UGraphNodeContextMenuContext* Context) const
 {
 	if (!Context->bIsDebugging)
 	{
@@ -66,7 +66,7 @@ void UJWAN_CurveSmootherGraph::GetNodeContextMenuActions(UToolMenu* Menu, UGraph
 }
 
 
-void UJWAN_CurveSmootherGraph::CustomizeDetails(IDetailLayoutBuilder& DetailBuilder)
+void UPasha_CurveSmootherGraph::CustomizeDetails(IDetailLayoutBuilder& DetailBuilder)
 {
 	Super::CustomizeDetails(DetailBuilder);
 	TSharedRef<IPropertyHandle> NodeHandle = DetailBuilder.GetProperty(FName(TEXT("Node")), GetClass());
@@ -89,7 +89,7 @@ void UJWAN_CurveSmootherGraph::CustomizeDetails(IDetailLayoutBuilder& DetailBuil
 	}
 }
 
-void UJWAN_CurveSmootherGraph::CustomizePinData(UEdGraphPin* Pin, FName SourcePropertyName, int32 ArrayIndex) const
+void UPasha_CurveSmootherGraph::CustomizePinData(UEdGraphPin* Pin, FName SourcePropertyName, int32 ArrayIndex) const
 {
 	Super::CustomizePinData(Pin, SourcePropertyName, ArrayIndex);
 
@@ -114,7 +114,7 @@ void UJWAN_CurveSmootherGraph::CustomizePinData(UEdGraphPin* Pin, FName SourcePr
 	}
 }
 
-void UJWAN_CurveSmootherGraph::PostEditChangeProperty(struct FPropertyChangedEvent& PropertyChangedEvent)
+void UPasha_CurveSmootherGraph::PostEditChangeProperty(struct FPropertyChangedEvent& PropertyChangedEvent)
 {
 	const FName PropertyName = (PropertyChangedEvent.Property ? PropertyChangedEvent.Property->GetFName() : NAME_None);
 	// Reconstruct node to show updates to PinFriendlyNames.

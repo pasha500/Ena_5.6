@@ -6,7 +6,7 @@
 #include "UObject/ObjectMacros.h"
 #include "Animation/AnimNodeBase.h"
 #include "Animation/InputScaleBias.h"
-#include "JWAN_CurveSmootherLogic.generated.h"
+#include "Pasha_CurveSmootherLogic.generated.h"
 
 USTRUCT(BlueprintType)
 struct FCurveSmootherSetting

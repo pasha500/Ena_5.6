@@ -5,10 +5,10 @@
 #include "Animation/AnimNodeBase.h"
 #include "Animation/AnimInstanceProxy.h"
 #include "Animation/PoseSnapshot.h"
-#include "JWAN_PoseSnapShotLogic.generated.h"
+#include "Pasha_PoseSnapShotLogic.generated.h"
 
 USTRUCT(BlueprintInternalUseOnly)
-struct PASHAANIMNODESTOOL_API FJWAN_PoseSnapShotLogic : public FAnimNode_Base
+struct PASHAANIMNODESTOOL_API FPasha_PoseSnapShotLogic : public FAnimNode_Base
 {
     GENERATED_USTRUCT_BODY()
 
