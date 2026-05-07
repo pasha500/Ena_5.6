@@ -17,6 +17,13 @@
 	],
 	"Plugins": [
 		{
+			"Name": "GuidedTutorials",
+			"Enabled": true,
+			"TargetAllowList": [
+				"Editor"
+			]
+		},
+		{
 			"Name": "ModelingToolsEditorMode",
 			"Enabled": true,
 			"TargetAllowList": [

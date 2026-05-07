@@ -5,7 +5,7 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "ALS_StructuresAndEnumsCpp.h"
-#include "JakubCablePhysic.h"
+#include "PashaCablePhysic.h"
 #include "DrawDebugHelpers.h"
 #include "ALS_HookActorInterface.h"
 #include "ModifyClimbingParamsVolume.h"
@@ -97,7 +97,7 @@ protected:
 		int SwingDebugIndexC = 0;
 
 	UPROPERTY(BlueprintReadWrite, meta = (AllowPrivateAccess = "True", Category = "Rope Swing System", DisplayName = "CableSimComponentC"))
-		UJakubCablePhysic* CableSimC = nullptr;
+		UPashaCablePhysic* CableSimC = nullptr;
 
 	UPROPERTY(BlueprintReadWrite, meta = (AllowPrivateAccess = "True", Category = "Rope Swing System", DisplayName = "HookActorC"))
 		AActor* HookActorC = nullptr;

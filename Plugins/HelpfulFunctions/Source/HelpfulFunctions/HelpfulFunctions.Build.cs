@@ -14,8 +14,8 @@ public class HelpfulFunctions : ModuleRules
 		PublicIncludePaths.AddRange(
 			new string[] 
 			{
-                //"JakubCableComponent/Public",
-                //"JakubCableComponent/Classes",
+                //"PashaCableComponent/Public",
+                //"PashaCableComponent/Classes",
             }
 			);
 				
@@ -31,7 +31,7 @@ public class HelpfulFunctions : ModuleRules
 			new string[]
 			{
 				"Core",
-				"JakubCableComponent",
+				"PashaCableComponent",
                 "PoseSearch",
                 "AssetRegistry",
                 "UMG",

@@ -1,5 +1,0 @@
-
-
-
-#include "JakubCableStats.h"
-

@@ -23,7 +23,7 @@
 	],
 	"Plugins": [
 		{
-			"Name": "JakubCableComponent",
+			"Name": "PashaCableComponent",
 			"Enabled": true
 		},
 		{
