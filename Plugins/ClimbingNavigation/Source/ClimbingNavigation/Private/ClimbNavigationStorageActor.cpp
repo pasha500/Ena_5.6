@@ -30,13 +30,13 @@ void AClimbNavigationStorageActor::Tick(float DeltaTime)
 }
 
 
-// Zwraca najkrótsz¹ œcie¿kê jako TArray punktów
+// Zwraca najkrï¿½tszï¿½ ï¿½cieï¿½kï¿½ jako TArray punktï¿½w
 TArray<FClimbNav_SingleClimbPoint> AClimbNavigationStorageActor::FindPathBetweenTwoIndex(int StartPointIndex, int EndPointIndex)
 {
-    TSet<int> VisitedPoints; // Zestaw punktów ju¿ odwiedzonych
+    TSet<int> VisitedPoints; // Zestaw punktï¿½w juï¿½ odwiedzonych
     TArray<int> PointsToVisit; // Punkty do odwiedzenia
-    TMap<int, float> Distances; // Minimalne odleg³oœci do ka¿dego punktu
-    TMap<int, int> PreviousPoints; // Poprzednie punkty w œcie¿ce
+    TMap<int, float> Distances; // Minimalne odlegï¿½oï¿½ci do kaï¿½dego punktu
+    TMap<int, int> PreviousPoints; // Poprzednie punkty w ï¿½cieï¿½ce
 
     // Inicjalizacja
     Distances.Add(StartPointIndex, 0.0f);
@@ -46,20 +46,20 @@ TArray<FClimbNav_SingleClimbPoint> AClimbNavigationStorageActor::FindPathBetween
     {
         if (i != StartPointIndex)
         {
-            Distances.Add(i, FLT_MAX); // Ustawiamy nieskoñczonoœæ dla punktów innych ni¿ pocz¹tkowy
+            Distances.Add(i, FLT_MAX); // Ustawiamy nieskoï¿½czonoï¿½ï¿½ dla punktï¿½w innych niï¿½ poczï¿½tkowy
         }
-        PreviousPoints.Add(i, -1); // Brak poprzednika na pocz¹tku
+        PreviousPoints.Add(i, -1); // Brak poprzednika na poczï¿½tku
     }
 
     // Algorytm Dijkstra z dodatkowymi warunkami
     while (PointsToVisit.Num() > 0)
     {
-        // ZnajdŸ punkt o najmniejszej odleg³oœci, który jeszcze nie zosta³ odwiedzony
+        // Znajdï¿½ punkt o najmniejszej odlegï¿½oï¿½ci, ktï¿½ry jeszcze nie zostaï¿½ odwiedzony
         int CurrentPointIndex = GetPointWithSmallestDistance(Distances, PointsToVisit);
-        PointsToVisit.Remove(CurrentPointIndex); // Usuñ ten punkt z listy do odwiedzenia
+        PointsToVisit.Remove(CurrentPointIndex); // Usuï¿½ ten punkt z listy do odwiedzenia
         VisitedPoints.Add(CurrentPointIndex); // Zaznacz jako odwiedzony
 
-        // Je¿eli doszliœmy do punktu koñcowego, przerywamy
+        // Jeï¿½eli doszliï¿½my do punktu koï¿½cowego, przerywamy
         if (CurrentPointIndex == EndPointIndex)
         {
             break;
@@ -67,12 +67,12 @@ TArray<FClimbNav_SingleClimbPoint> AClimbNavigationStorageActor::FindPathBetween
 
         const FClimbNav_SingleClimbPoint& CurrentPoint = NavigationCompleteMap[CurrentPointIndex];
 
-        // Przetwarzanie s¹siadów bie¿¹cego punktu
+        // Przetwarzanie sï¿½siadï¿½w bieï¿½ï¿½cego punktu
         for (const FClimbNav_OtherPointParams& Neighbor : CurrentPoint.PossibleNextPoints)
         {
             int NeighborIndex = Neighbor.InArrayIndex;
 
-            // Je¿eli punkt s¹siaduj¹cy by³ ju¿ odwiedzony, pomijamy go
+            // Jeï¿½eli punkt sï¿½siadujï¿½cy byï¿½ juï¿½ odwiedzony, pomijamy go
             if (VisitedPoints.Contains(NeighborIndex))
             {
                 continue;
@@ -83,22 +83,22 @@ TArray<FClimbNav_SingleClimbPoint> AClimbNavigationStorageActor::FindPathBetween
             // Oblicz dystans
             float NewDistance = Distances[CurrentPointIndex] + Neighbor.Distance;
 
-            // Warunek maksymalnej akceptowalnej odleg³oœci
+            // Warunek maksymalnej akceptowalnej odlegï¿½oï¿½ci
             if (Neighbor.Distance > 500.0)
             {
-                continue; // Pomijamy punkty, które s¹ zbyt oddalone
+                continue; // Pomijamy punkty, ktï¿½re sï¿½ zbyt oddalone
             }
 
-            // Preferencje ró¿nicy wysokoœci
+            // Preferencje rï¿½nicy wysokoï¿½ci
             float HeightDifference = FMath::Abs(CurrentPoint.LedgeCenter.GetLocation().Z - NeighborPoint.LedgeCenter.GetLocation().Z);
-            float HeightFactor = FMath::Lerp(1.0f, HeightDifference, PreferLowerAltitudesWeight); // Gdy PreferLowerAltitudesWeight = 1, ró¿nica wysokoœci ma pe³ne znaczenie
+            float HeightFactor = FMath::Lerp(1.0f, HeightDifference, PreferLowerAltitudesWeight); // Gdy PreferLowerAltitudesWeight = 1, rï¿½nica wysokoï¿½ci ma peï¿½ne znaczenie
 
-            // Preferencje k¹ta
+            // Preferencje kï¿½ta
             FVector CurrentForward = CurrentPoint.LedgeCenter.GetRotation().GetForwardVector();
             FVector NeighborForward = NeighborPoint.LedgeCenter.GetRotation().GetForwardVector();
-            float AngleValue = FMath::Acos(FVector::DotProduct(CurrentForward, NeighborForward)); // Ró¿nica k¹ta w radianach
+            float AngleValue = FMath::Acos(FVector::DotProduct(CurrentForward, NeighborForward)); // Rï¿½nica kï¿½ta w radianach
             float AngleDifference = FMath::GetMappedRangeValueClamped(FVector2D(0.0, 180.0), FVector2D(1.0, 10.0), AngleValue);
-            float AngleFactor = FMath::Lerp(1.0f, AngleDifference, SameAnglePreferenceWeight); // Gdy SameAnglePreferenceWeight = 1, ró¿nica k¹ta ma pe³ne znaczenie
+            float AngleFactor = FMath::Lerp(1.0f, AngleDifference, SameAnglePreferenceWeight); // Gdy SameAnglePreferenceWeight = 1, rï¿½nica kï¿½ta ma peï¿½ne znaczenie
 
             bool NoCollisionChecked = true;
 
@@ -118,16 +118,16 @@ TArray<FClimbNav_SingleClimbPoint> AClimbNavigationStorageActor::FindPathBetween
 
             }
 
-            // Finalny "koszt" s¹siada uwzglêdniaj¹cy wagê ró¿nicy wysokoœci i k¹ta
+            // Finalny "koszt" sï¿½siada uwzglï¿½dniajï¿½cy wagï¿½ rï¿½nicy wysokoï¿½ci i kï¿½ta
             float NeighborCost = NewDistance * HeightFactor * AngleFactor;
 
-            // Je¿eli nowa odleg³oœæ jest mniejsza, aktualizujemy
+            // Jeï¿½eli nowa odlegï¿½oï¿½ï¿½ jest mniejsza, aktualizujemy
             if (NeighborCost < Distances[NeighborIndex])
             {
                 Distances[NeighborIndex] = NeighborCost;
                 PreviousPoints[NeighborIndex] = CurrentPointIndex;
 
-                // Dodaj s¹siada do kolejki do odwiedzenia, je¿eli nie by³ jeszcze odwiedzony
+                // Dodaj sï¿½siada do kolejki do odwiedzenia, jeï¿½eli nie byï¿½ jeszcze odwiedzony
                 if (!PointsToVisit.Contains(NeighborIndex))
                 {
                     if (NoCollisionChecked)
@@ -138,13 +138,11 @@ TArray<FClimbNav_SingleClimbPoint> AClimbNavigationStorageActor::FindPathBetween
             }
         }
     }
-
-    // Odtwarzanie œcie¿ki od punktu koñcowego do pocz¹tkowego
-    // Rekonstrukcja œcie¿ki
+    // Recreate the path from end point to start point
+    // Path reconstruction
     return ReconstructPath(PreviousPoints, EndPointIndex);
 }
-
-// Funkcja pomocnicza do znalezienia punktu z najmniejsz¹ odleg³oœci¹ w kolejce
+// Helper: find the point with the smallest distance in queue
 int AClimbNavigationStorageActor::GetPointWithSmallestDistance(const TMap<int, float>& Distances, const TArray<int>& PointsToVisit)
 {
     float MinDistance = FLT_MAX;
@@ -162,9 +160,7 @@ int AClimbNavigationStorageActor::GetPointWithSmallestDistance(const TMap<int, f
 
     return BestPoint;
 }
-
-
-// Funkcja pomocnicza do rekonstrukcji œcie¿ki
+// Helper: reconstruct the path
 TArray<FClimbNav_SingleClimbPoint> AClimbNavigationStorageActor::ReconstructPath(const TMap<int, int>& PreviousPoints, int EndPointIndex)
 {
     TArray<FClimbNav_SingleClimbPoint> Path;
@@ -172,7 +168,7 @@ TArray<FClimbNav_SingleClimbPoint> AClimbNavigationStorageActor::ReconstructPath
 
     while (CurrentIndex != -1)
     {
-        Path.Insert(NavigationCompleteMap[CurrentIndex], 0); // Dodajemy na pocz¹tek œcie¿ki
+        Path.Insert(NavigationCompleteMap[CurrentIndex], 0); // Insert at path start
         CurrentIndex = PreviousPoints[CurrentIndex]; // Przechodzimy do poprzedniego punktu
     }
 

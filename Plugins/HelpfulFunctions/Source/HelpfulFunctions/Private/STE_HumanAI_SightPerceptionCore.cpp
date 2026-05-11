@@ -133,7 +133,7 @@ void USTE_HumanAI_SightPerceptionCore::WriteToStateTreeProperties(FStateTreeExec
 	if (FAGLS_HumanAI_EnemyTags* SightPtr =
 		SightPerceptionRef.GetMutablePtr<FAGLS_HumanAI_EnemyTags>(Context))
 	{
-		*SightPtr = EnemyTags; // skopiuj ca³y struct
+		*SightPtr = EnemyTags; // skopiuj caï¿½y struct
 	}
 }
 
@@ -176,17 +176,16 @@ float USTE_HumanAI_SightPerceptionCore::UpdateSightPerceptionValues_Implementati
 	{
 		ACharacter* CurrentChar = Cast<ACharacter>(PerceivedActorsAll[i]);
 		if (!CurrentChar) continue;
-		//Niestety SightPerception (PerceptionComponent) nie pozwala z ³atwoœci¹ filtrowaæ wszystkich wykrytych instancji 
-		// Pawn w danym czasie i promienu. Dlatego wymagane jest aby wykonaæ to rêcznie. Z tego wzglêdu musimy wykonaæ 
-		// iteracjê przez obecnie zajerestrowane Aktory, i sprawdziæ jaki z nich spe³nia nastêpujace warunki takie jak: 
+		//Niestety SightPerception (PerceptionComponent) nie pozwala z ï¿½atwoï¿½ciï¿½ filtrowaï¿½ wszystkich wykrytych instancji 
+		// Pawn w danym czasie i promienu. Dlatego wymagane jest aby wykonaï¿½ to rï¿½cznie. Z tego wzglï¿½du musimy wykonaï¿½ 
+		// iteracjï¿½ przez obecnie zajerestrowane Aktory, i sprawdziï¿½ jaki z nich speï¿½nia nastï¿½pujace warunki takie jak: 
 		// czy nie jest martwy, dla Zombie AI jest on wrogiem itd. 
 		if (GetCharacterIsDead(CurrentChar) == true) { FAILEDACTOR(CurrentChar, "Skip: GetCharacterIsDead", 0); continue; }
 		if (ModifySightForPlayerCompanion(CurrentChar) == false) { FAILEDACTOR(CurrentChar, "Skip: ModifySightForPlayerCompanion", 0); continue; }
 		if (HFL::GetIsEnemyState(Char, Char, CurrentChar) == false) { FAILEDACTOR(CurrentChar, "Skip: GetIsEnemyState", 0); continue; }
 		if (HFL::IsNotHidingInFoliage(Char, Char, CurrentChar, FoliageCollisionChannel, 0) == false) { FAILEDACTOR(CurrentChar, "Skip: IsNotHidingInFoliage", 0); continue; }
-
-		//Je¿eli Perception posiada w tablicy tylko jednego zarejestrowanego wroga, to nie ma potrzeby tworzenia tabilcy wag. 
-		// W tym przypadku wystarczy ustawiæ wartoœci zmiennych i zakoñczyæ funkcjê
+        // If only one enemy is perceived, no weight array is needed.
+        // In that case, set values directly and finish this branch.
 		if (PerceivedActorsAll.Num() == 1)
 		{
 			SetBB_EnemyActor(CurrentChar);
@@ -357,12 +356,12 @@ bool USTE_HumanAI_SightPerceptionCore::SetNewEnemyButRememberPrev(ACharacter* Ne
 	SIGHTPROPERTIES.EnemyCharacter = NewEnemy;
 	GetSightPerceptionTagsFromCharacter(SIGHTPROPERTIES.IsZombie, SIGHTPROPERTIES.EnemySpottedHim, SIGHTPROPERTIES.ShouldHideSelfFromEnemy, NewEnemy);
 
-	//Istotna wartoœæ w kontekœcie tego czy Charakter mo¿e atakowaæ przeciwników np. poprzez strzelanie. Dlaczego ta zmienna faktycznie jest taka istotna? 
-	// G³ównie wynika to z tego ¿e dane na temat percepcji mo¿na 'twardo' ustawiæ, ca³kowicie omijaj¹c SightPerception. To znaczy ¿e informacje o wrogu 
-	// mog¹ byæ kopiowana przez innych towarzyszy/kompanów. Je¿eli tak siê stanie to HumanAI zacznie strzelaæ, poniwa¿ tak bêdzie wynikaæ z wartoœci 
-	// SightPerception. Taka sytuacja nastêpuje kiedy przyk³adowo jeden z HumanAI zauwa¿y wroga, co sposoduje uruchomienie systemu który poinformuje innych 
-	// o zarejestrowanym wrogu. Sposoduje to skopiowanie wartoœci SightResult do pozosta³ych w pobli¿u HumanAI. Jednak inni zaczn¹ strzelaæ dopiero w 
-	// momencie faktycznej rejestracji wroga przez sight perception. Za to rorzu¿nienie odpowiada w³aœnie ta zmienna.
+	//Istotna wartoï¿½ï¿½ w kontekï¿½cie tego czy Charakter moï¿½e atakowaï¿½ przeciwnikï¿½w np. poprzez strzelanie. Dlaczego ta zmienna faktycznie jest taka istotna? 
+	// Gï¿½ï¿½wnie wynika to z tego ï¿½e dane na temat percepcji moï¿½na 'twardo' ustawiï¿½, caï¿½kowicie omijajï¿½c SightPerception. To znaczy ï¿½e informacje o wrogu 
+	// mogï¿½ byï¿½ kopiowana przez innych towarzyszy/kompanï¿½w. Jeï¿½eli tak siï¿½ stanie to HumanAI zacznie strzelaï¿½, poniwaï¿½ tak bï¿½dzie wynikaï¿½ z wartoï¿½ci 
+	// SightPerception. Taka sytuacja nastï¿½puje kiedy przykï¿½adowo jeden z HumanAI zauwaï¿½y wroga, co sposoduje uruchomienie systemu ktï¿½ry poinformuje innych 
+	// o zarejestrowanym wrogu. Sposoduje to skopiowanie wartoï¿½ci SightResult do pozostaï¿½ych w pobliï¿½u HumanAI. Jednak inni zacznï¿½ strzelaï¿½ dopiero w 
+	// momencie faktycznej rejestracji wroga przez sight perception. Za to rorzuï¿½nienie odpowiada wï¿½aï¿½nie ta zmienna.
 	if (BlackboardData)
 	{
 		BlackboardData->SetValueAsBool("EnemyIsPhysicallySeen", true);

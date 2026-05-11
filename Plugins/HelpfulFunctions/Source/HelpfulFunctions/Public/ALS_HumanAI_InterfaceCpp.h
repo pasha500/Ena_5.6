@@ -1,4 +1,4 @@
-﻿// Copyright Jakub W, All Rights Reserved. 
+// Copyright Pasha, All Rights Reserved. 
 
 #pragma once
 
@@ -44,10 +44,7 @@ In this interface we mark whether our class should be interpreted as 'Solider' o
 some systems allow to perform certain sequences e.g. Stealth Finisher or Melee Attack. Marking 'Zombie' as true causes to 
 block some functionalities e.g. Melee Combat.
 
-PL:
-W tym interfejsie oznaczamy czy nasza klasa powinna być interpretowana jako 'Solider' lub 'Zombie'. W przypadku oznaczenia 
-'Solider' niektóre systemy pozwalają wykonać pewnie sekwencje np. Stealth Finisher lub Melee Attack. Oznaczenia 'Zombie' 
-jako true powoduje zablokowanie niektórych funkcjonalności np. Melee Combat.*/
+*/
 	UFUNCTION(BlueprintCallable, BlueprintNativeEvent, Category = "BPI AI Controller States|Get")
 		void HAI_GetCharacterType(bool& IsSolider, bool& IsZombie);
 
@@ -77,11 +74,7 @@ CharacterReference*->DoesHaveInterface(INTERFACE_CharAI_ControllerValues)->Execu
 Or:
 CharacterReference*->GetController()->DoesHaveInterface(ZombieAI_ControllerInterface)->GetControllerValues(...)
 
-PL:
-Z tej funkcji interfejsu można pobrać informacje na temat wykrytych wrogów. Jednak nie jest to jedny sposób na dostanie tych informacji. 
-Bazowo bez nadpisania ta funkcja interfejsu nie  zwraca żadnych informacji. Zazwyczaj w tym celu potrzebne jest wywołanie GetController()
-->...->GetControllerValues*(...), gdzie dopiero z tej funkcji można pobrać aktualne wartości z kontrolera AI. Oznacza to że 
-'HAI_GetControllerSmallValues' można traktować jako pośreniczącą funkcję.*/
+*/
 	UFUNCTION(BlueprintCallable, BlueprintImplementableEvent, Category = "BPI AI Controller States|Get")
 		void HAI_GetControllerSmallValues(bool& DetectedEnemy, float& DetectedEnemyTime , ACharacter*& EnemyActor);
 

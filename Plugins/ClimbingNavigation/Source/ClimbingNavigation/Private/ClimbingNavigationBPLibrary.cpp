@@ -36,18 +36,18 @@ bool LinePlaneIntersection(const FVector& LineStart, const FVector& LineEnd, con
 	FVector LineDirection = LineEnd - LineStart;
 	float DotProduct = FVector::DotProduct(LineDirection, PlaneNormal);
 
-	// Sprawdzamy, czy linia nie jest równoleg³a do p³aszczyzny
+	// Sprawdzamy, czy linia nie jest rï¿½wnolegï¿½a do pï¿½aszczyzny
 	if (FMath::Abs(DotProduct) < KINDA_SMALL_NUMBER)
 	{
-		return false; // Brak przeciêcia
+		return false; // Brak przeciï¿½cia
 	}
 
 	float T = FVector::DotProduct(PlaneOrigin - LineStart, PlaneNormal) / DotProduct;
 
-	// Sprawdzamy, czy punkt przeciêcia znajduje siê na odcinku linii
+	// Sprawdzamy, czy punkt przeciï¿½cia znajduje siï¿½ na odcinku linii
 	if (T < 0.0f || T > 1.0f)
 	{
-		return false; // Punkt przeciêcia jest poza odcinkiem
+		return false; // Punkt przeciï¿½cia jest poza odcinkiem
 	}
 
 	IntersectionPoint = LineStart + T * LineDirection;
@@ -59,26 +59,25 @@ bool IntersectLineWithBox(const FBox& Box, const FVector& LineStart, const FVect
 	FVector BoxMin = Box.Min;
 	FVector BoxMax = Box.Max;
 
-	// Definicja p³aszczyzn FBox
+	// Definicja pï¿½aszczyzn FBox
 	TArray<FPlane> BoxPlanes = {
-		FPlane(BoxMin, FVector(-1, 0, 0)), // Lewa p³aszczyzna
-		FPlane(BoxMax, FVector(1, 0, 0)),  // Prawa p³aszczyzna
-		FPlane(BoxMin, FVector(0, -1, 0)), // Dolna p³aszczyzna
-		FPlane(BoxMax, FVector(0, 1, 0)),  // Górna p³aszczyzna
-		FPlane(BoxMin, FVector(0, 0, -1)), // Tylna p³aszczyzna
-		FPlane(BoxMax, FVector(0, 0, 1))   // Przednia p³aszczyzna
+		FPlane(BoxMin, FVector(-1, 0, 0)), // Lewa pï¿½aszczyzna
+		FPlane(BoxMax, FVector(1, 0, 0)),  // Prawa pï¿½aszczyzna
+        FPlane(BoxMin, FVector(0, -1, 0)), // Bottom plane
+        FPlane(BoxMax, FVector(0, 1, 0)),  // Top plane
+        FPlane(BoxMin, FVector(0, 0, -1)), // Back plane
+        FPlane(BoxMax, FVector(0, 0, 1))   // Front plane
 	};
-
-	// Sprawdzanie przeciêcia z ka¿d¹ p³aszczyzn¹
+    // Check intersections against each plane
 	for (const FPlane& Plane : BoxPlanes)
 	{
 		if (LinePlaneIntersection(LineStart, LineEnd, Plane.GetOrigin(), Plane.GetNormal(), Intersection))
 		{
-			return true; // Znaleziono przeciêcie
+			return true; // Znaleziono przeciï¿½cie
 		}
 	}
 
-	return false; // Brak przeciêcia
+	return false; // Brak przeciï¿½cia
 }
 
 
@@ -159,13 +158,13 @@ void UClimbingNavigationBPLibrary::DrawDebugPartCylinder(const UObject* WorldCon
 	{
 		FVector CylinderAxis = CenterAngle.Vector(); // Wektor osi cylindra
 
-		FVector StartDirection = FRotationMatrix(CenterAngle).GetUnitAxis(EAxis::X); // Kierunek pocz¹tkowy cylindra
+		FVector StartDirection = FRotationMatrix(CenterAngle).GetUnitAxis(EAxis::X); // Kierunek poczï¿½tkowy cylindra
 
 		FColor MainColor = Color.ToFColor(true);
 
 		DrawDebugArc(WorldContextObject, StartPosition, Radius, StartDirection, HalfAngle * 2, Segments, MainColor, LifeTime, Thickness);
 
-		// Krok 3: Narysuj górê cylindra
+		// Krok 3: Narysuj gï¿½rï¿½ cylindra
 		const FVector CylinderUpDirection = KML::GetUpVector(CenterAngle);
 		FVector TopPosition = StartPosition + CylinderUpDirection * Height;
 		DrawDebugArc(WorldContextObject, TopPosition, Radius, StartDirection, HalfAngle * 2, Segments, MainColor, LifeTime , Thickness);
@@ -195,60 +194,60 @@ void UClimbingNavigationBPLibrary::DrawDebugArc(const UObject* WorldContextObjec
 	// Kolor dla debugowania
 	FColor DebugColor = Color.ToFColor(true);
 
-	// Oblicz krok k¹ta dla ka¿dego segmentu
-	float AngleStep = AngleWidth * 2 / Segments;  // AngleWidth to po³owa ³uku, wiêc ca³y ³uk to 2 * AngleWidth
+	// Oblicz krok kï¿½ta dla kaï¿½dego segmentu
+	float AngleStep = AngleWidth * 2 / Segments;  // AngleWidth to poï¿½owa ï¿½uku, wiï¿½c caï¿½y ï¿½uk to 2 * AngleWidth
 
 	const FVector UpDirection = KML::GetUpVector(KML::MakeRotFromX(Direction));
 	const FVector RotatedAxisA = KML::RotateAngleAxis(Direction, -AngleWidth, UpDirection);
 
-	// Punkt pocz¹tkowy ³uku
+	// Punkt poczï¿½tkowy ï¿½uku
 	FVector PreviousPoint = Center + RotatedAxisA * Radius;
 
 	// Rysuj linie segment po segmencie
 	for (int32 i = 1; i <= Segments; ++i)
 	{
-		float CurrentAngle = -AngleWidth + i * AngleStep; // Oblicz bie¿¹cy k¹t
+		float CurrentAngle = -AngleWidth + i * AngleStep; // Oblicz bieï¿½ï¿½cy kï¿½t
 		FVector CurrentDirection = KML::RotateAngleAxis(Direction, CurrentAngle, UpDirection);
 		FVector CurrentPoint = Center + CurrentDirection * Radius;
 
-		// Rysuj liniê pomiêdzy poprzednim punktem a bie¿¹cym punktem
+		// Rysuj liniï¿½ pomiï¿½dzy poprzednim punktem a bieï¿½ï¿½cym punktem
 		DrawDebugLine(World, PreviousPoint, CurrentPoint, DebugColor, false, LifeTime, 0, Thickness);
 
 		// Uaktualnij poprzedni punkt
 		PreviousPoint = CurrentPoint;
 	}
 
-	// Rysuj linie od koñców ³uku do œrodka
+	// Rysuj linie od koï¿½cï¿½w ï¿½uku do ï¿½rodka
 	FVector FirstPoint = Center + KML::RotateAngleAxis(Direction, -AngleWidth, UpDirection) * Radius;
 	FVector LastPoint = PreviousPoint;
 
-	// Linia od pierwszego punktu ³uku do œrodka
+	// Linia od pierwszego punktu ï¿½uku do ï¿½rodka
 	DrawDebugLine(World, Center, FirstPoint, DebugColor, false, LifeTime, 0, Thickness);
 
-	// Linia od ostatniego punktu ³uku do œrodka
+	// Linia od ostatniego punktu ï¿½uku do ï¿½rodka
 	DrawDebugLine(World, Center, LastPoint, DebugColor, false, LifeTime, 0, Thickness);
 }
 
 
 bool UClimbingNavigationBPLibrary::IsPointOnSegment(const FVector& SegmentStart, const FVector& SegmentEnd, const FVector& Point, float Tolerance)
 {
-	// Sprawdzenie, czy punkt le¿y na prostej wyznaczonej przez odcinek (z uwzglêdnieniem tolerancji)
+	// Sprawdzenie, czy punkt leï¿½y na prostej wyznaczonej przez odcinek (z uwzglï¿½dnieniem tolerancji)
 	FVector SegmentVector = SegmentEnd - SegmentStart;
 	FVector PointVector = Point - SegmentStart;
 
 	// Obliczenie projekcji punktu na wektor odcinka
 	float Projection = FVector::DotProduct(PointVector, SegmentVector.GetSafeNormal());
 
-	// Sprawdzenie, czy punkt le¿y w przedziale odcinka
+	// Sprawdzenie, czy punkt leï¿½y w przedziale odcinka
 	if (Projection < 0 || Projection > SegmentVector.Size())
 	{
 		return false; // Punkt jest poza odcinkiem
 	}
 
-	// Obliczenie najbli¿szego punktu na prostej przechodz¹cej przez odcinek
+	// Obliczenie najbliï¿½szego punktu na prostej przechodzï¿½cej przez odcinek
 	FVector ClosestPointOnLine = SegmentStart + SegmentVector.GetSafeNormal() * Projection;
 
-	// Sprawdzenie, czy odleg³oœæ punktu od prostej mieœci siê w tolerancji
+	// Sprawdzenie, czy odlegï¿½oï¿½ï¿½ punktu od prostej mieï¿½ci siï¿½ w tolerancji
 	float DistanceToLine = FVector::Dist(ClosestPointOnLine, Point);
 	return DistanceToLine <= Tolerance;
 }
@@ -276,7 +275,7 @@ bool UClimbingNavigationBPLibrary::FindClosestEdgeOnNavMesh(const UObject* World
 		return false;
 	}
 
-	// Znalezienie najbli¿szego punktu na NavMesh
+	// Znalezienie najbliï¿½szego punktu na NavMesh
 	FNavLocation ProjectedPoint;
 	if (!NavSys->ProjectPointToNavigation(BasePoint, ProjectedPoint, FVector(Radius, Radius, Radius)))
 	{
@@ -287,7 +286,7 @@ bool UClimbingNavigationBPLibrary::FindClosestEdgeOnNavMesh(const UObject* World
 	FVector ClosestPointOnEdge = FVector::ZeroVector;
 	float MinDistance = FLT_MAX;
 
-	// Iteracja przez wielok¹ty w promieniu
+	// Iteracja przez wielokï¿½ty w promieniu
 	TArray<NavNodeRef> NearbyPolys;
 	if (!RecastNavMesh->GetPolysWithinPathingDistance(ProjectedPoint.Location, Radius, NearbyPolys))
 	{
@@ -300,40 +299,35 @@ bool UClimbingNavigationBPLibrary::FindClosestEdgeOnNavMesh(const UObject* World
 		TArray<FVector> PolyVertices;
 		if (RecastNavMesh->GetPolyVerts(PolyRef, PolyVertices))
 		{
-			// Iteracja przez krawêdzie wielok¹ta
+			// Iteracja przez krawï¿½dzie wielokï¿½ta
 			for (int32 i = 0; i < PolyVertices.Num(); ++i)
 			{
 				const FVector& EdgeStart = PolyVertices[i];
 				const FVector& EdgeEnd = PolyVertices[(i + 1) % PolyVertices.Num()];
 
-				// Znalezienie punktu œrodkowego krawêdzi
+				// Znalezienie punktu ï¿½rodkowego krawï¿½dzi
 				FVector MidPoint = (EdgeStart + EdgeEnd) * 0.5f;
-
-				// Obliczenie wektora kierunku krawêdzi
+                // Compute edge direction vector
 				FVector EdgeDirection = (EdgeEnd - EdgeStart).GetSafeNormal();
-
-				// Obliczenie wektora prostopad³ego
-				FVector Perpendicular = FVector(-EdgeDirection.Y, EdgeDirection.X, 0.0f); // Zak³adamy, ¿e krawêdzie s¹ w p³aszczyŸnie XY
-
-				// Sprawdzanie punktów po obu stronach krawêdzi
-				FVector TestPoint1 = MidPoint + Perpendicular * 4.0f; // Wektor prostopad³y w jedn¹ stronê
-				FVector TestPoint2 = MidPoint - Perpendicular * 4.0f; // Wektor prostopad³y w przeciwn¹ stronê
-
-				// Sprawdzenie, czy punkty s¹ na NavMesh
+                // Compute perpendicular vector
+                FVector Perpendicular = FVector(-EdgeDirection.Y, EdgeDirection.X, 0.0f); // Assuming XY-plane edges
+                // Check points on both sides of the edge
+                FVector TestPoint1 = MidPoint + Perpendicular * 4.0f; // Perpendicular offset in one direction
+                FVector TestPoint2 = MidPoint - Perpendicular * 4.0f; // Perpendicular offset in the opposite direction
+                // Check whether points are on NavMesh
 				FNavLocation NavLoc1, NavLoc2;
 				bool bIsTestPoint1OnNavMesh = NavSys->ProjectPointToNavigation(TestPoint1, NavLoc1, FVector(1.0f, 1.0f, 1.0f));
 				bool bIsTestPoint2OnNavMesh = NavSys->ProjectPointToNavigation(TestPoint2, NavLoc2, FVector(1.0f, 1.0f, 1.0f));
-
-				// Jeœli oba punkty s¹ na NavMesh, oznacza to krawêdŸ wewnêtrzn¹, pomijamy j¹
+                // If both points are on NavMesh, this is an internal edge, so skip it
 				if (bIsTestPoint1OnNavMesh && bIsTestPoint2OnNavMesh)
 				{
 					continue;
 				}
 
-				// Znalezienie najbli¿szego punktu na krawêdzi
+				// Znalezienie najbliï¿½szego punktu na krawï¿½dzi
 				FVector ClosestPoint = FMath::ClosestPointOnSegment(BasePoint, EdgeStart, EdgeEnd);
 
-				// Obliczenie odleg³oœci od punktu bazowego
+				// Obliczenie odlegï¿½oï¿½ci od punktu bazowego
 				float Distance = FVector::Dist(BasePoint, ClosestPoint);
 				if (Distance < MinDistance)
 				{
@@ -344,7 +338,7 @@ bool UClimbingNavigationBPLibrary::FindClosestEdgeOnNavMesh(const UObject* World
 		}
 	}
 
-	// Sprawdzenie, czy znaleziono punkt na krawêdzi w podanym promieniu
+	// Sprawdzenie, czy znaleziono punkt na krawï¿½dzi w podanym promieniu
 	if (MinDistance <= Radius)
 	{
 		OutClosestEdgePoint = ClosestPointOnEdge;
@@ -378,7 +372,7 @@ bool UClimbingNavigationBPLibrary::FindClosestNavMeshEdge(UObject* WorldContextO
 		return false;
 	}
 
-	// Znalezienie najbli¿szego punktu na NavMesh
+	// Znalezienie najbliï¿½szego punktu na NavMesh
 	FNavLocation ProjectedPoint;
 	if (!NavSys->ProjectPointToNavigation(BasePoint, ProjectedPoint, FVector(Radius, Radius, Radius)))
 	{
@@ -390,7 +384,7 @@ bool UClimbingNavigationBPLibrary::FindClosestNavMeshEdge(UObject* WorldContextO
 	FVector ClosestEdgeEnd = FVector::ZeroVector;
 	float MinDistance = FLT_MAX;
 
-	// Iteracja przez wielok¹ty w promieniu
+	// Iteracja przez wielokï¿½ty w promieniu
 	TArray<NavNodeRef> NearbyPolys;
 	if (!RecastNavMesh->GetPolysWithinPathingDistance(ProjectedPoint.Location, Radius, NearbyPolys))
 	{
@@ -403,31 +397,26 @@ bool UClimbingNavigationBPLibrary::FindClosestNavMeshEdge(UObject* WorldContextO
 		TArray<FVector> PolyVertices;
 		if (RecastNavMesh->GetPolyVerts(PolyRef, PolyVertices))
 		{
-			// Iteracja przez krawêdzie wielok¹ta
+			// Iteracja przez krawï¿½dzie wielokï¿½ta
 			for (int32 i = 0; i < PolyVertices.Num(); ++i)
 			{
 				const FVector& EdgeStart = PolyVertices[i];
 				const FVector& EdgeEnd = PolyVertices[(i + 1) % PolyVertices.Num()];
 
-				// Znalezienie punktu œrodkowego krawêdzi
+				// Znalezienie punktu ï¿½rodkowego krawï¿½dzi
 				FVector MidPoint = (EdgeStart + EdgeEnd) * 0.5f;
-
-				// Obliczenie wektora kierunku krawêdzi
+                // Compute edge direction vector
 				FVector EdgeDirection = (EdgeEnd - EdgeStart).GetSafeNormal();
-
-				// Obliczenie wektora prostopad³ego
-				FVector Perpendicular = FVector(-EdgeDirection.Y, EdgeDirection.X, 0.0f); // Zak³adamy, ¿e krawêdzie s¹ w p³aszczyŸnie XY
-
-				// Sprawdzanie punktów po obu stronach krawêdzi
-				FVector TestPoint1 = MidPoint + Perpendicular * 4.0f; // Wektor prostopad³y w jedn¹ stronê
-				FVector TestPoint2 = MidPoint - Perpendicular * 4.0f; // Wektor prostopad³y w przeciwn¹ stronê
-
-				// Sprawdzenie, czy punkty s¹ na NavMesh
+                // Compute perpendicular vector
+                FVector Perpendicular = FVector(-EdgeDirection.Y, EdgeDirection.X, 0.0f); // Assuming XY-plane edges
+                // Check points on both sides of the edge
+                FVector TestPoint1 = MidPoint + Perpendicular * 4.0f; // Perpendicular offset in one direction
+                FVector TestPoint2 = MidPoint - Perpendicular * 4.0f; // Perpendicular offset in the opposite direction
+                // Check whether points are on NavMesh
 				FNavLocation NavLoc1, NavLoc2;
 				bool bIsTestPoint1OnNavMesh = NavSys->ProjectPointToNavigation(TestPoint1, NavLoc1, FVector(1.0f, 1.0f, 1.0f));
 				bool bIsTestPoint2OnNavMesh = NavSys->ProjectPointToNavigation(TestPoint2, NavLoc2, FVector(1.0f, 1.0f, 1.0f));
-
-				// Jeœli oba punkty s¹ na NavMesh, oznacza to krawêdŸ wewnêtrzn¹, pomijamy j¹
+                // If both points are on NavMesh, this is an internal edge, so skip it
 				if (bIsTestPoint1OnNavMesh && bIsTestPoint2OnNavMesh)
 				{
 					continue;
@@ -441,10 +430,10 @@ bool UClimbingNavigationBPLibrary::FindClosestNavMeshEdge(UObject* WorldContextO
 					}
 				}
 
-				// Znalezienie najbli¿szego punktu na krawêdzi
+				// Znalezienie najbliï¿½szego punktu na krawï¿½dzi
 				FVector ClosestPoint = FMath::ClosestPointOnSegment(BasePoint, EdgeStart, EdgeEnd);
 
-				// Obliczenie odleg³oœci od punktu bazowego
+				// Obliczenie odlegï¿½oï¿½ci od punktu bazowego
 				float Distance = FVector::Dist(BasePoint, ClosestPoint);
 				if (Distance < MinDistance)
 				{
@@ -456,7 +445,7 @@ bool UClimbingNavigationBPLibrary::FindClosestNavMeshEdge(UObject* WorldContextO
 		}
 	}
 
-	// Sprawdzenie, czy znaleziono krawêdŸ w podanym promieniu
+	// Sprawdzenie, czy znaleziono krawï¿½dï¿½ w podanym promieniu
 	if (MinDistance <= Radius)
 	{
 		EdgePointLeft = ClosestEdgeStart;
@@ -493,7 +482,7 @@ TArray<FNavEdgeParams> UClimbingNavigationBPLibrary::FindExternalEdgesInBox(UObj
 		return OutEdges;
 	}
 
-	// Znalezienie wielok¹tów w obszarze SearchBox
+	// Znalezienie wielokï¿½tï¿½w w obszarze SearchBox
 	TArray<FNavPoly> NearbyPolys;
 	if (!RecastNavMesh->GetPolysInBox(SearchBox, NearbyPolys))
 	{
@@ -501,42 +490,37 @@ TArray<FNavEdgeParams> UClimbingNavigationBPLibrary::FindExternalEdgesInBox(UObj
 		return OutEdges;
 	}
 
-	// Iteracja przez wielok¹ty
+	// Iteracja przez wielokï¿½ty
 	for (const FNavPoly& Poly : NearbyPolys)
 	{
 		TArray<FVector> PolyVertices;
 		if (RecastNavMesh->GetPolyVerts(Poly.Ref, PolyVertices))
 		{
-			// Iteracja przez krawêdzie wielok¹ta
+			// Iteracja przez krawï¿½dzie wielokï¿½ta
 			for (int32 i = 0; i < PolyVertices.Num(); ++i)
 			{
 				const FVector& EdgeStart = PolyVertices[i];
 				const FVector& EdgeEnd = PolyVertices[(i + 1) % PolyVertices.Num()];
 
-				// Znalezienie punktu œrodkowego krawêdzi
+				// Znalezienie punktu ï¿½rodkowego krawï¿½dzi
 				FVector MidPoint = (EdgeStart + EdgeEnd) * 0.5f;
-
-				// Obliczenie wektora kierunku krawêdzi
+                // Compute edge direction vector
 				FVector EdgeDirection = (EdgeEnd - EdgeStart).GetSafeNormal();
-
-				// Obliczenie wektora prostopad³ego
-				FVector Perpendicular = FVector(-EdgeDirection.Y, EdgeDirection.X, 0.0f);
-
-				// Sprawdzanie punktów po obu stronach krawêdzi
+                // Compute perpendicular vector
+                FVector Perpendicular = FVector(-EdgeDirection.Y, EdgeDirection.X, 0.0f); // Assuming XY-plane edges
 				FVector TestPoint1 = MidPoint + Perpendicular * 4.0f;
 				FVector TestPoint2 = MidPoint - Perpendicular * 4.0f;
 
 				FNavLocation NavLoc1, NavLoc2;
 				bool bIsTestPoint1OnNavMesh = NavSys->ProjectPointToNavigation(TestPoint1, NavLoc1, FVector(1.0f, 1.0f, 1.0f));
 				bool bIsTestPoint2OnNavMesh = NavSys->ProjectPointToNavigation(TestPoint2, NavLoc2, FVector(1.0f, 1.0f, 1.0f));
-
-				// Jeœli oba punkty s¹ na NavMesh, oznacza to krawêdŸ wewnêtrzn¹, pomijamy j¹
+                // If both points are on NavMesh, this is an internal edge, so skip it
 				if (bIsTestPoint1OnNavMesh && bIsTestPoint2OnNavMesh)
 				{
 					continue;
 				}
 
-				// Przycinanie krawêdzi do FBox
+				// Przycinanie krawï¿½dzi do FBox
 				FVector ClippedEdgeStart = EdgeStart;
 				FVector ClippedEdgeEnd = EdgeEnd;
 
@@ -557,7 +541,7 @@ TArray<FNavEdgeParams> UClimbingNavigationBPLibrary::FindExternalEdgesInBox(UObj
 
 				if (!bStartInside && !bEndInside)
 				{
-					continue; // Obie koñcówki krawêdzi s¹ poza obszarem
+					continue; // Obie koï¿½cï¿½wki krawï¿½dzi sï¿½ poza obszarem
 				}
 
 				if (!bStartInside)
@@ -567,7 +551,7 @@ TArray<FNavEdgeParams> UClimbingNavigationBPLibrary::FindExternalEdgesInBox(UObj
 
 					if (IntersectLineWithBox(SearchBox, EdgeStart, EdgeEnd, Intersection))
 					{
-						ClippedEdgeStart = Intersection; // Punkt przeciêcia z FBox
+						ClippedEdgeStart = Intersection; // Punkt przeciï¿½cia z FBox
 					}
 				}
 
@@ -578,11 +562,11 @@ TArray<FNavEdgeParams> UClimbingNavigationBPLibrary::FindExternalEdgesInBox(UObj
 
 					if (IntersectLineWithBox(SearchBox, EdgeEnd, EdgeStart, Intersection))
 					{
-						ClippedEdgeEnd = Intersection; // Punkt przeciêcia z FBox
+						ClippedEdgeEnd = Intersection; // Punkt przeciï¿½cia z FBox
 					}
 				}
 
-				// Dodanie krawêdzi do wyników
+				// Dodanie krawï¿½dzi do wynikï¿½w
 				FNavEdgeParams EdgeParams;
 				EdgeParams.LeftPosition = ClippedEdgeStart;
 				EdgeParams.RightPosition = ClippedEdgeEnd;
@@ -603,16 +587,16 @@ bool UClimbingNavigationBPLibrary::DoesLineIntersectBox(UObject* WorldContextObj
 	// Wyznacz wektor kierunku linii
 	FVector LineDirection = LinePointB - LinePointA;
 
-	// Jeœli linia jest zdegenerowana (punkty s¹ takie same)
+	// Jeï¿½li linia jest zdegenerowana (punkty sï¿½ takie same)
 	if (LineDirection.IsNearlyZero())
 	{
-		return Box.IsInside(LinePointA); // SprawdŸ, czy punkt A znajduje siê w Box
+		return Box.IsInside(LinePointA); // Sprawdï¿½, czy punkt A znajduje siï¿½ w Box
 	}
 
 	// Normalizacja kierunku
 	LineDirection.Normalize();
 
-	// SprawdŸ przeciêcie przy pomocy FBox::Intersect
+	// Sprawdï¿½ przeciï¿½cie przy pomocy FBox::Intersect
 	FVector Intersected;
 	return IntersectLineWithBox(Box, LinePointA, LinePointB, Intersected);
 }
@@ -679,7 +663,7 @@ float UClimbingNavigationBPLibrary::GetPathFollowingCurrentNavCost(const UPathFo
 
 UActorComponent* UClimbingNavigationBPLibrary::CreateComponentFromClassAndAddToActor(AActor* TargetActor, TSubclassOf<UActorComponent> ComponentClass, FTransform RelativeTransform, FName ComponentName)
 {
-	// Sprawdzenie, czy aktor i klasa komponentu s¹ prawid³owe
+	// Sprawdzenie, czy aktor i klasa komponentu sï¿½ prawidï¿½owe
 	if (!TargetActor || !*ComponentClass)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("Invalid actor or component class passed to AddComponentToActor!"));
@@ -694,28 +678,28 @@ UActorComponent* UClimbingNavigationBPLibrary::CreateComponentFromClassAndAddToA
 		return nullptr;
 	}
 
-	// Jeœli komponent to USceneComponent (tylko takie mog¹ mieæ transform)
+	// Jeï¿½li komponent to USceneComponent (tylko takie mogï¿½ mieï¿½ transform)
 	if (USceneComponent* SceneComponent = Cast<USceneComponent>(NewComponent))
 	{
 		// Ustawienie transformacji
 		SceneComponent->SetupAttachment(TargetActor->GetRootComponent());
 		SceneComponent->SetRelativeTransform(RelativeTransform);
 
-		// Zarejestrowanie komponentu, aby by³ widoczny i dzia³a³ poprawnie
+		// Zarejestrowanie komponentu, aby byï¿½ widoczny i dziaï¿½aï¿½ poprawnie
 		SceneComponent->RegisterComponent();
 	}
 	else
 	{
-		// Jeœli nie jest to SceneComponent, tylko rejestrujemy
+		// Jeï¿½li nie jest to SceneComponent, tylko rejestrujemy
 		NewComponent->RegisterComponent();
 	}
 
-	// Dodanie komponentu jako instancji, aby by³ trwa³y
+	// Dodanie komponentu jako instancji, aby byï¿½ trwaï¿½y
 	TargetActor->AddInstanceComponent(NewComponent);
 
-	// Oznaczenie aktora jako "brudny", aby Unreal Engine wiedzia³, ¿e nale¿y go zapisaæ
+	// Oznaczenie aktora jako "brudny", aby Unreal Engine wiedziaï¿½, ï¿½e naleï¿½y go zapisaï¿½
 	TargetActor->MarkPackageDirty();
 
-	// Zwrócenie nowo utworzonego komponentu
+	// Zwrï¿½cenie nowo utworzonego komponentu
 	return NewComponent;
 }

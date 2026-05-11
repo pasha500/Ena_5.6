@@ -66,14 +66,6 @@ public:
 	when the attachment will be automatically ignored. This applies to the case when we add elements 
 	to the 'PreOverlayStateToIgnoreAttach' variable.
 	
-	PL:
-	Pozostawienie tej opcji wlaczonej powoduje ze HandleForItem bedzie doczepiac Aktora rekwizytu do 
-	odpowiedniego komponentu powiazanego z pozycja reki. Takie doczepienie aktora bedzie nastepowac 
-	w momencie kiedy gracz zmieni stan nakladki (Overlay State) na ten odpowiadajacy komponentowi 
-	Handle (okresla to zmienna SocketType). Zmienna EquipWaitDelay wplywa na opoznienie tego 
-	doczepienia. Warto pamietac ze mimo wlaczenia tej funkcjonalnosci, sa przypadki kiedy
-	automatyczne doczepienie zostanie z ignorowane. Dotyczy to przypadku kiedy dodamy elementy do 
-	zmiennej 'PreOverlayStateToIgnoreAttach'. 
 	*/
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Handle Config", meta = (DisplayName = "Use Auto Attach", Keywords = "Physic Handle Item"))
 	bool UseAutoAttachToHand = true;

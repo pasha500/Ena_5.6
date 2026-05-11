@@ -1466,11 +1466,10 @@ FVector UHelpfulFunctionsBPLibrary::FixMovePointWhenIs(UObject* WorldContextObje
 	if (IsValid(TargetCharacter) == false)
 	{ return TargetPoint; }
 	FVector NormalizedPoint = TargetPoint;
-	FNavLocation OutLocation; // Zmiana poniewaz jakis problem byl w wersji silnika 5.1
+    FNavLocation OutLocation; // Legacy workaround for an older engine issue
 	FNavLocation RandomNavLocation;
-
-	const UNavigationSystemV1* NavSystem = UNavigationSystemV1::GetCurrent(TargetCharacter->GetWorld()); //WAZNE!!!!!!!!!!!!!
-	// Nie mozna uzyskac GeWorld() z pliku wtyczki. Za to mozna uzyc opcji GEditor->GetEditorWorldContext().World()
+    const UNavigationSystemV1* NavSystem = UNavigationSystemV1::GetCurrent(TargetCharacter->GetWorld()); // Important
+    // In plugin code, use context world accessors instead of relying on direct editor world retrieval
 
 	TArray<AActor*> ActorsOfClass;
 	UGameplayStatics::GetAllActorsOfClass(WorldContextObject, CharactersArray, ActorsOfClass);
@@ -2031,14 +2030,12 @@ FVector UHelpfulFunctionsBPLibrary::VInterpToWithDelay(const FVector& Current, c
 	// Obliczanie si쨀y interpolacji dla ka쩔dej sk쨀adowej niezale쩔nie
 	auto InterpSingle = [DeltaTime, InterpSpeed](float CurrentSingle, float TargetSingle) -> float {
 		const float Distance = TargetSingle - CurrentSingle;
-
-		// Sprawdzanie, czy jeste혵my wystarczaj쨔co blisko celu
+        // Check whether we are close enough to the target
 		if (FMath::IsNearlyZero(Distance))
 		{
 			return TargetSingle;
 		}
-
-		// 'Alpha' kontroluje kszta쨀t krzywej interpolacji
+        // Alpha controls interpolation curve shape
 		const float Alpha = FMath::Clamp(DeltaTime * InterpSpeed, 0.f, 1.f);
 
 		// Implementacja funkcji sigmoidalnej

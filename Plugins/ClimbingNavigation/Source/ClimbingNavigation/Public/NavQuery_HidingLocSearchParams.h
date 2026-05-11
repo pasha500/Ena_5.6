@@ -45,23 +45,20 @@ struct FWeightFunction : public FTableRowBase
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Read Only")
 	FRuntimeFloatCurve DistributionCurve;
-
-	// Funkcja aktualizuj¹ca krzyw?dystrybucji w zale¿noœci od parametr?
+    // Updates the distribution curve based on current parameters
 	void UpdateDistributionCurve()
 	{
 		DistributionCurve.EditorCurveData.Reset();
-		const int NumPoints = 20; // Liczba punkt? do wygenerowania
+        const int NumPoints = 20; // Number of generated points
 		const float Step = 1.0f / (NumPoints - 1);
 
 		for (int i = 0; i < NumPoints; ++i)
 		{
 			float X = i * Step;
 			float Y = CalculateDistributionValue(X);
-
-			// Dodaj punkt do krzywej
+            // Add a key point to the curve
 			FKeyHandle KeyHandle = DistributionCurve.EditorCurveData.AddKey(X, Y);
-
-			// Ustaw tryb stycznych na Smart Auto dla tego punktu
+            // Set tangent mode for this point
 			//DistributionCurve.EditorCurveData.SetKeyInterpMode(KeyHandle, ERichCurveInterpMode::RCIM_Cubic);
 			//DistributionCurve.EditorCurveData.SetKeyTangentWeightMode(KeyHandle, ERichCurveTangentWeightMode::RCTWM_WeightedArrive, true);
 			//DistributionCurve.EditorCurveData.SetKeyTangentMode(KeyHandle, ERichCurveTangentMode::RCTM_Auto);
@@ -71,7 +68,7 @@ struct FWeightFunction : public FTableRowBase
 	}
 
 private:
-	// Funkcja pomocnicza obliczaj¹ca wartoœæ dystrybucji
+    // Helper function that computes distribution value
 	float CalculateDistributionValue(float X) const
 	{
 		switch (DistributionFunction)
@@ -107,10 +104,10 @@ public:
 
 	UNavQuery_HidingLocSearchParams()
 	{
-		// Generowanie domyœlnych wykres? w konstruktorze
+		// Generowanie domyï¿½lnych wykres? w konstruktorze
 		PathLenghtToPointWeight.UpdateDistributionCurve();
 		DistanceToNearestEnemyWeight.UpdateDistributionCurve();
-		ReachOriginWeight.Weight = 0.0; // Zmiana wartoœci domyœlnej
+		ReachOriginWeight.Weight = 0.0; // Zmiana wartoï¿½ci domyï¿½lnej
 		ReachOriginWeight.UpdateDistributionCurve();
 		PointAngleWeight.UpdateDistributionCurve();
 		WallHitWeight.Weight = 0.0;
@@ -197,17 +194,16 @@ seek the highest weight value for CoverPoint.*/
 	{
 		Super::PostEditChangeProperty(PropertyChangedEvent);
 
-		// Pobierz nazw?zmienionej w³aœciwoœci
+		// Pobierz nazw?zmienionej wï¿½aï¿½ciwoï¿½ci
 		const FName PropertyName = PropertyChangedEvent.GetPropertyName();
-
-		// Sprawd? czy zmieniono jedn?z w³aœciwoœci w strukturach
+        // Check whether one of the structure properties changed
 		if (PropertyName == GET_MEMBER_NAME_CHECKED(FWeightFunction, Weight) ||
 			PropertyName == GET_MEMBER_NAME_CHECKED(FWeightFunction, DistributionFunction) ||
 			PropertyName == GET_MEMBER_NAME_CHECKED(FWeightFunction, PowerExponent) ||
 			PropertyName == GET_MEMBER_NAME_CHECKED(FWeightFunction, WeightBias)
 			)
 		{
-			// Odœwie?krzywe w strukturach
+            // Refresh curves in nested structures
 			PathLenghtToPointWeight.UpdateDistributionCurve();
 			DistanceToNearestEnemyWeight.UpdateDistributionCurve();
 			ReachOriginWeight.UpdateDistributionCurve();

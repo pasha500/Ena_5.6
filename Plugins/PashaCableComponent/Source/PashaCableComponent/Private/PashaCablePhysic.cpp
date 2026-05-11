@@ -853,8 +853,7 @@ void UPashaCablePhysic::VerletIntegrate(float InSubstepTime, const FVector& Grav
 			//Apply Aditive Force To Particle But only when Index Is Valid
 			FVector AdditiveForce = FVector(0, 0, 0);
 			if (AdditiveForces.IsValidIndex(ParticleIdx) == true) { AdditiveForce = AdditiveForces[ParticleIdx] * SubstepTimeSqr; }
-
-			// Update position         | Pozycja Cz�stki  + Dodanie Pr?ko�ci    + Dodanie si�y grawitacji          - Odj?ie Warto�ci przy�pieszenia + Dodatkow sila dla wybranej cz�stki
+            // Update position = position + damped velocity + gravity force - acceleration damping + additive force
 			const FVector NewPosition = Particle.Position + (Vel * DampingValue) + (SubstepTimeSqr * ParticleForce) - (Acc * DampingByAcceleration) + AdditiveForce;
 
 			// Save current Particle Position for next Frame Gen

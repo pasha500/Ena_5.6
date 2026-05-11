@@ -13,7 +13,7 @@
 
 void FPasha_LayerBlendingLogic::Initialize_AnyThread(const FAnimationInitializeContext& Context)
 {
-    //Funkcja inicjuj�ca noda
+    // Initializes the node
     AnimInst = Cast<UAnimInstance>(Context.AnimInstanceProxy->GetAnimInstanceObject());
     BaseLayerInput.Initialize(Context);
     OverlayLayerInput.Initialize(Context);
@@ -27,7 +27,7 @@ void FPasha_LayerBlendingLogic::Initialize_AnyThread(const FAnimationInitializeC
 
 void FPasha_LayerBlendingLogic::CacheBones_AnyThread(const FAnimationCacheBonesContext& Context)
 {
-    //Funkcja inicjuj�ca noda
+    // Initializes the node
     //DECLARE_SCOPE_HIERARCHICAL_COUNTER_ANIMNODE(CacheBones_AnyThread)
     BaseLayerInput.CacheBones(Context);
     OverlayLayerInput.CacheBones(Context);

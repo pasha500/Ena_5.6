@@ -16,9 +16,9 @@
 #include "STE_HumanAI_SightPerceptionCore.generated.h"
 
 /**
- The Evaluator class code for StateTree updates the values ​​of variables related to SightPerception. The entire implementation is designed specifically 
+ The Evaluator class code for StateTree updates the values ?뗢땚f variables related to SightPerception. The entire implementation is designed specifically 
  for HumanAI. The main result of this Evaluator is the correct completion of the SightPerceptionRef structure. 
- Additionally, if BackboardData != nullptr, then values ​​are set for certain keys, e.g.:
+ Additionally, if BackboardData != nullptr, then values ?뗢땇re set for certain keys, e.g.:
 - (object)StateTreePerceptionEvaluatorRef,
 - (bool)EnemyIsPhysicallySeen,
 - (bool)IsCurrentlySeeEnemy,
@@ -31,12 +31,6 @@ binds from ST __________________ working on copied values    ___________________
 >-----------> ReadST PropertyRef --------------------------> UpdateSightProperties --------------------------> WriteTo ST_PropertyRef ------------->
 			 |_________________|                            |____________________|                            |_____________________|
 
-PL:
-- (object)StateTreePercpetionEvaluatorRef,
-- (bool)EnemyIsPhysicallySeen,
-- (bool)IsCurrentlySeeEnemy,
-- (float)SeeEnemyTime,
-- (float)EnemySeeCheckerAlpha
  */
 UCLASS(BlueprintType, Blueprintable, EditInlineNew, DefaultToInstanced)
 class HELPFULFUNCTIONS_API USTE_HumanAI_SightPerceptionCore : public UStateTreeEvaluatorBlueprintBase
@@ -99,7 +93,7 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Perception Config")
 	TMap<AGLS_HumanAI_SightStatus, float> DeltaTimesWhenSeePerState;
 
-	/*Works similarly to DeltaTimesWhenSeePerState, but this data is retrieved when the AI ​​currently does not see any valid enemy.*/
+	/*Works similarly to DeltaTimesWhenSeePerState, but this data is retrieved when the AI ?뗢땉urrently does not see any valid enemy.*/
 	UPROPERTY(EditAnywhere, Category = "Perception Config")
 	TMap<AGLS_HumanAI_SightStatus, float> DeltaTimesWhenNotSeePerState;
 
@@ -112,17 +106,12 @@ public:
 	registered more than one character, a mechanism comes into play that determines the weight for each character. The higher 
 	the final weight, the character assigned to that value becomes the active enemy. This curve is important for calculating 
 	the weight of the distance between SightPerceptionOwner and the detected character.
-	PL:
-	Krzywa aktywna w momencie okreslania wagi dla zajerejestrowanych wrogow przez SightPerception. W przypadku kiedy komponent 
-	percepcji zajerestrowal wiecej niz 1 charakter, do gry wkracza mechanizm okreslajacy dla kazdej postaci wage. Czym finalna 
-	waga bedzie wyzsza, to wtedy aktywnym wrogiem staje sie charakter przypisany do tej wartosci. Krzywa ta jest istotna do 
-	obliczania wagi odleglosci miedzy SightPerceptionOwner oraz wykrytym Charakterem.
 	*/
 	UPROPERTY(EditAnywhere, Category = "Perception Config")
 	UCurveFloat* PerceptionDistWeightCurve = nullptr;
 
 	/*An important parameter that determines the perception status (enum AGLS_HumanAI_SightStatus). It affects the change from 
-	'CurrentlySeeEnemy' to 'LostSight'. The higher the value, the faster the AI ​​will switch to LostSight after losing sight of 
+	'CurrentlySeeEnemy' to 'LostSight'. The higher the value, the faster the AI ?뗢땧ill switch to LostSight after losing sight of 
 	enemies.*/
 	UPROPERTY(EditAnywhere, Category = "Perception Config", meta = (ClampMin = "0.2", ClampMax = "0.94"))
 	float LostSightTimeTreshold = 0.65;

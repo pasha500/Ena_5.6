@@ -78,10 +78,6 @@ protected:
     get 4 points from the segment lying on one straight line (400/100 = 4). In this case, an attempt to create NavLinks will be made for 4 points. These points can be displayed 
     by checking 'bDrawDebugSegmetsPoints' as true.
 
-    PL:
-    Okresla co jaka odleglosc odcinek powinien byc podzielony na mniejsze fragmenty. Je¿eli przykladowo NavPolyEdge ma dlugosc 400cm a SegmentDivisor wynosi 100cm to finalnie 
-    otrzymamy z odcinka 4 punkty lezace na jednej prostej (400/100 = 4). W takim przypadku proba utworzenia NavLinks nastapi dla 4 punkow. Punkty te mozna wyswietlic zaznaczajac 
-    'bDrawDebugSegmetsPoints' jako true.
     */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Config|Approximation", meta = (Units = "Centimeters"))
     float SegmentDivisor = 100.0f;

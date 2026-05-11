@@ -22,8 +22,7 @@ struct FRuntimePhysicAnimConfig : public FTableRowBase
 /*ENG: This variable defines from which bone changes will be made in the physics simulation via Physic Asset. This name will usually be passed 
 to the SetAllBodiesBelowSimulatePhysic() function
 
-PL: Zmienna ta określa od jakiej kości będą wprowadzane zmiany w symulacji fizyki za pośrednictwem Physic Asset. Nazwa ta zazwyczaj będzie 
-przekazywana do funkcji SetAllBodiesBelowSimulatePhysic()*/
+*/
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Physic")
 	FName SimulationInitBodyName = TEXT("Spine_01");
 
@@ -31,9 +30,7 @@ przekazywana do funkcji SetAllBodiesBelowSimulatePhysic()*/
 SimulationInitBodyName should also be included in the change. For example, if SimulationInitBodyName = "Spine_01" then should we 
 include the Bodies associated with this bone or not
 
-PL: Wpływa na to czy podczas wywoływania funkcji zmieniającej stan symululowania fizyki dla poszczególnych bodies, do zmiany powinno 
-się uwzględnić też nazwę zdefiniowaną w SimulationInitBodyName. Przykładowo jeżeli SimulationInitBodyName = "Spine_01" to czy powinniśmy 
-uwzględnić Bodies powiązane z tą kością, cz też nie*/
+*/
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Physic")
 	bool bIncludeSelf = true;
 
@@ -41,9 +38,7 @@ uwzględnić Bodies powiązane z tą kością, cz też nie*/
 then the basic Physic Asset contained in the Mesh will be overwritten. After disabling Ragdoll mode, the asset will be released. It can be 
 left empty (in fact, it is NOT recommended)
 
-PL: Dodatkowy PhysicAsset, który jest ustawiany w momencie kiedy w charakterze dojdzie do wywołania np. funkcji Ragdoll(). Jeżeli zmienna 
-ta != null to wtedy dojdzie do nadpisania podstawowego Physic Asset zawartego w Mesh. Po wyłączeniu trybu Ragdoll zasób zostanie zwolniony. 
-Można pozostawić puste (wręcz jest to zalecane)*/
+*/
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Physic")
 	UPhysicsAsset* OverrideWhenRagdoll = nullptr;
 
@@ -52,10 +47,7 @@ For example, if we call SetAllBodiesBelowSimulatePhysic() for the Spine_01 bone,
 start to simulate physics. By entering e.g. 'hand_l' and 'hand_r' into the BodiesNameToOverride variable, we will make these bones excluded 
 from the simulation. Useful when configuring Physic Animation
 
-PL: Dodatkowa zmienna pozwalająca na 'ominięcie' włączenia symulacji fizyki dla bodies powiązanych z zadeklorowanymi nazwami kości. 
-Przykłądowo jeżeli wywołamy SetAllBodiesBelowSimulatePhysic() dla kości Spine_01 to w takim przypadku wszystkie kości, które sa wyżej w 
-hierarchii zaczną symulować fizykę. Wprowadzając do zmiennej BodiesNameToOverride np. 'hand_l' oraz 'hand_r' sprawimy że te kości zostaną 
-wyłączone z symulacji. Pomocne przy konfiguracji Physic Aniamtion*/
+*/
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Physic")
 	TArray<FName> BodiesNameToOverride = {};
 
@@ -64,10 +56,7 @@ goes to low level of detail e.g. LOD_02 or LOD_03. For these states physics simu
 about currently simulating Bodies would be lost. Therefore it is required to manually enter all bone names. Without such solution it would 
 be required to iterate through all bones in SkeletalMesh which is not very efficient approach.
 
-PL: Ważna tabilca zawierająca nazwy wszystkich kości ze SkeletalMesh, które mają przypisane PhysicBodies. Jest to istotne w momencie kiedy 
-Character przechodzi w niski poziom detail np. LOD_02  lub LOD_03. Dla tych stanów symulacja fizyki powinna zostać wyłączona, jednak w takim 
-przypadku informacja o aktualnie symulujących Bodies została by utracona. Dlatego wymagane jest aby  wprowadzić ręcznie wszystkie nazwy kości. 
-Bez takiego rozwiązania wymagane było by iterowanie przez wszystkie kości w SkeletalMesh co nie jest dość wydajnym podejściem.*/
+*/
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Physic")
 	TArray<FName> AllCollisionBodiesInPS = {};
 
@@ -90,7 +79,7 @@ modifications via child classes. Through this class character has have implement
 - float Deceleration (from Curve Vector.Y)
 - float GroundFriction (from Curve Vector.Z)
 - float MaxWalkingSpeed (From Vector where X=Forward, Y=Left/Right, Z=BackDirection)
-These values ​​are set depending on the DataAsset configuration, which was specified for the USimpleMovementParamsData* MovementParamsData variable
+These values ?뗢땇re set depending on the DataAsset configuration, which was specified for the USimpleMovementParamsData* MovementParamsData variable
 
 This class also implements the capsule rotation interpolation system, ragdoll, and many other functions for constructing the final character. 
 Many functions declared in C++ have an override option via Blueprint, which allows for more free modification in the child class.*/
@@ -241,9 +230,7 @@ Cannot be left EMPTY.*/
 You can enter a range from which a random value will be selected to multiply MaxWalkingSpeed. This allows you to 
 introduce more variety with more instances, as they will move at different maximum speeds.
 
-PL:
-Można wprowadzić przedział z którego będzie wybrana przypadkowa wartość mnożąca MaxWalkingSpeed. Dzięki temu można wprowadzić 
-większą różnorodność przy większej ilości instancji, gdyż będą poruszać się z innymi maksymalnymi prędkościami.*/
+*/
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "True", Category = "Zombie Core|Movement", ClampMin = "0.5", ClampMax = "1.5", ExposeOnSpawn = true));
 	FVector2D InitMovementRandomScale = FVector2D(1.0, 1.0);
 
@@ -265,14 +252,10 @@ Otherwise, the simulation will be updated whenever the character is in LOD0 or L
 /*ENG:
 Important variable when UseBodyDismemberment is set to true. In this part it is necessary to define which bones will have a separate health points. 
 For example, if 'hand_l' = 1.0, then when damage is registered, additionally information about the hit bone will be taken from HitResult. Then an attempt 
-will be made to find it in BodiesHealth and finally reduce the value of health points. These values ​​are also used to calculate the so-called 'Limb_Health' 
+will be made to find it in BodiesHealth and finally reduce the value of health points. These values ?뗢땇re also used to calculate the so-called 'Limb_Health' 
 which determines whether the limb should be detached from the skeleton when this value is less than 0.01
 
-PL:
-Ważna zmienna w przypadku kiedy UseBodyDismemberment jest ustawiana na true. W tej części konieczne jest zdefiniowanie jakie kości będą posiadały oddzielny 
-pasek zdrowia. Przykładowo jeżeli 'hand_l' = 1.0, to w momencie kiedy zostaną zajerestrowane obrażenia, to dodatkowo z HitResult zostanie pobrana informacja 
-o trafinej kości. Nastepnie zajdzie próba ndnalezienia jej w BodiesHealth a finalnie zmiejszenie wartości punktów zdrowia. Wartości te są również używane do 
-wyliczenia tak zwanego 'Limb_Health' który określa czy kończyna powinna zostać odczepiona od szkeletu w momencie kiedy wartość ta będzie mniejsza od 0.01*/
+*/
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "True", Category = "Zombie Core|Physics", ClampMin = "0.0", ClampMax = "2.0", EditCondition = "UseBodyDismemberment"))
 	TMap<FName, float> BodiesHealth;
 
@@ -285,11 +268,7 @@ in the skeletal mesh component, will cause longer initialization time of the Zom
 component will significantly affect the compilation time of the Blueprint.
 WARNING: Using Deformer Graph is expensive in the case of many instances of this class.
 
-PL:
-Określenie z jakiego zasobu typu 'Deformer' powinien kożystać SkeletalMesh. Uwaga: wprowadzenie odnieszienia do zasobu dla tej zmiennej, a nie zdefiniowanie 
-go ręcznie w skeletal mesh component będzie powodować dłóższy czas inicjacji instancji Zombie na mapie. W innym przypadku wskazanie zasobu bezpośrednio w 
-komponencie wpłynie znacząco na czas kompilacji Blueprint.
-UWAGA: Użycie Deformer Graph jest kosztowne w przypadku wielu instancji tej klasy.*/
+*/
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (AllowPrivateAccess = "True", Category = "Zombie Core|Deformer"))
 	UMeshDeformer* MeshDeformerClass = nullptr;
 
@@ -302,9 +281,7 @@ UWAGA: Użycie Deformer Graph jest kosztowne w przypadku wielu instancji tej kla
 Montage animations to be activated when a character registers a fall from a great height. They can be left empty because 
 Landing Animations are implemented in Motion Matching
 
-PL:
-Animacje montage jakie mają być aktywowane w momencie kiedy charakter zarejestruje updadek z dużej wysokości. 
-Mogą pozostać puste, ponieważ Landing Animations są zaimplementowane w Motion Matching*/
+*/
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Zombie Core|Anim Instance|Landing", meta = (AllowPrivateAccess = "True"))
 	TSoftObjectPtr<UAnimMontage> LightLandMontage = nullptr;
 
@@ -312,9 +289,7 @@ Mogą pozostać puste, ponieważ Landing Animations są zaimplementowane w Motio
 Montage animations to be activated when a character registers a fall from a great height. They can be left empty because
 Landing Animations are implemented in Motion Matching
 
-PL:
-Animacje montage jakie mają być aktywowane w momencie kiedy charakter zarejestruje updadek z dużej wysokości.
-Mogą pozostać puste, ponieważ Landing Animations są zaimplementowane w Motion Matching*/
+*/
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Zombie Core|Anim Instance|Landing", meta = (AllowPrivateAccess = "True"))
 	TSoftObjectPtr<UAnimMontage> HardLandMontage = nullptr;
 
@@ -357,7 +332,7 @@ Mogą pozostać puste, ponieważ Landing Animations są zaimplementowane w Motio
 	CALS_MovementAction CurrentMovementAction = CALS_MovementAction::None;
 
 
-	// ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ FUNCTIONS SECTION ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+	// ????????????????????????????????????????????????????????????????? FUNCTIONS SECTION ??????????????????????????????????????????
 
 	virtual void OnCharacterMoveChanged(EMovementMode PrevMode, EMovementMode NewMode);
 	virtual void OnMovementStateChanged(CALS_MovementState NewAction);
@@ -405,48 +380,45 @@ Mogą pozostać puste, ponieważ Landing Animations są zaimplementowane w Motio
 	virtual void UpdateCurrentLOD_State_Implementation();
 
 
-	// ▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒
-	// ▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒ Physic [S] [E] [C] [T] [I] [O] [N]  ░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒
-	// ▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒░░░▒
-
-	//Update Current Bodies Physic Stats. Funkcja potrzebna do wywolania w momencie kiedy zmieniamy jakies parametry dla physic asset. Wynika to z faktu ze podczas zmiany LOD konieczne jest zapamietanie
+	// ?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇??
+	// ?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇??Physic [S] [E] [C] [T] [I] [O] [N]  ?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇??
+	// ?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇?믠뼇?묅뼇??
+    // Update current body physics states when runtime physics parameters change.
 	//ktore z Bodies byly aktywne a ktore nie.
 	UFUNCTION(BlueprintCallable, Category = "Zombie Core|Physic", meta = (Keywords = "Zombie,Physic"))
 	bool UpdateCurrentBodiesPhysicStats();
 	TArray<FName> BodiesWithActivatedPhysic;
-
-	//Prosta funkcja ktora aktywuje i wylacza posczagolne Bodies dla Physic Asset. Uwaga nie dziala to tak samo jak wywolanie np. EnableAllBodiesPhysic. Innformacja o tym ktore Bodies nalezy aktowowac
-	//a ktore nie pobierana jest ze zmiennej TArray<FName>. Zmiany w jej wartosciach powoduje wywolanie funkcji UpdateCurrentBodiesPhysicStats()
+    // Enables or disables selected physics bodies (not equivalent to global all-bodies toggles).
+    // Required body names are read from a TArray<FName> and refreshed by UpdateCurrentBodiesPhysicStats().
 	UFUNCTION(BlueprintCallable, Category = "Zombie Core|Physic", meta = (Keywords = "Zombie,Physic"))
 	bool DisableEnableRequiredBodies(bool bEnableSimulation);
 
-	// ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-	// ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ Update Actor Rotation for property movement state - Section ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-	// ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+	// ?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇
+	// ?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇 Update Actor Rotation for property movement state - Section ?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇??
+	// ?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇
 
 	//Smooth Character Rotation
 	UFUNCTION(BlueprintCallable, Category = "Zombie Core|Rotation", meta = (Keywords = "Zombie,Movement"))
 	void SmoothCharacterRotation(FRotator TargetRotation = FRotator(0,0,0), float InterpSpeed = 15.0);
-
-	//Bazowa funkcja do aktualizacji rotacji kapsuly. W zaleznosci od takich zmiennych jak RotationCurve, MovementState, IsMoving ustalana jest docelowa rotacja oraz nastepuje interpolacja poprzez
-	//uzycie SmoothCharacterRotation()
+    // Base capsule rotation update using state and curve-driven interpolation.
+	// Uses SmoothCharacterRotation() internally.
 	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Zombie|Rotation", meta = (ForceAsFunction))
 	void UpdateGroundedRotation();
 	virtual void UpdateGroundedRotation_Implementation();
 
-	//Dziala pobnie jak UpdateGroundedRotation() tylko jest aktywowana w momencie kiedy MovementState == InAir
+	// Similar to UpdateGroundedRotation(), but executed when MovementState == InAir.
 	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Zombie|Rotation", meta = (ForceAsFunction))
 	void UpdateFallingRotation();
 	virtual void UpdateFallingRotation_Implementation();
 
-	////Dziala pobnie jak UpdateGroundedRotation() tylko jest aktywowana w momencie kiedy MovementState == Crawl
+	// Similar to UpdateGroundedRotation(), but executed when MovementState == Crawl.
 	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Zombie|Rotation", meta = (ForceAsFunction))
 	void UpdateCrawlingRotation();
 	virtual void UpdateCrawlingRotation_Implementation();
 
-	//⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆
-	//⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆ H E A L T H  ,  D A M A G E  ,  D E A T H  ,  H I T ⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆
-	//⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆⛆
+	//?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓??
+	//?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓??H E A L T H  ,  D A M A G E  ,  D E A T H  ,  H I T ?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓??
+	//?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓?녳썓??
 
 	//Hit Reaction And Damage
 	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Zombie|Behavior")
@@ -479,9 +451,9 @@ Mogą pozostać puste, ponieważ Landing Animations są zaimplementowane w Motio
 
 
 
-	// ▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░
-	// ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ R A G D O L L   S Y S T E M ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-	// ▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░▒░
+	// ?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇
+	// ?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇 R A G D O L L   S Y S T E M ?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇??
+	// ?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇?믠뼇
 
 	//Try RAGDOLL Start
 	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Zombie|Ragdoll", meta = (ForceAsFunction, DisplayName = "Ragdoll Start", Keywords = "AGLS,Character,Ragdoll"))
@@ -503,9 +475,9 @@ Mogą pozostać puste, ponieważ Landing Animations są zaimplementowane w Motio
 
 	//End Ragdoll SECTION -----------------------------------------------
 
-// ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-// ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ OTHER FUNCTIONS OR MACROS ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-// ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+// ?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇
+// ?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇 OTHER FUNCTIONS OR MACROS ?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇??
+// ?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇
 
 	//Get Child Bones Names Structure from Mesh 
 	UFUNCTION(BlueprintPure, Category = "Zombie|Utility")
@@ -526,10 +498,10 @@ Mogą pozostać puste, ponieważ Landing Animations są zaimplementowane w Motio
 	virtual void OnStartCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust) override;
 	virtual void OnEndCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust) override;
 
-	// ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-	// ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-	// ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ INTERFACE FUNTIONS OVERRIDE SECTION ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-	// ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+	// ?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹?꾟뻹??
+	// ?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇??
+	// ?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇 INTERFACE FUNTIONS OVERRIDE SECTION ?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇
+	// ?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇?묅뼇??
 
 	virtual void BPI_AI_Get_CurrentStates_Implementation(
 		TEnumAsByte<EMovementMode>& PawnMovementMode,

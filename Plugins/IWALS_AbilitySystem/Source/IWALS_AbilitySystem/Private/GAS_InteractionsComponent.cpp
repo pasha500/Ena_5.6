@@ -78,11 +78,11 @@ bool UGAS_InteractionsComponent::CurrentHasThisAbility(UAbilitySystemComponent* 
 	{
 		if (Spec.Ability->GetClass() == ClassToCheck)
 		{
-			// Zdolnoœæ zosta³a ju¿ przydzielona
+			// Zdolnoï¿½ï¿½ zostaï¿½a juï¿½ przydzielona
 			return true;
 		}
 	}
-	// Zdolnoœæ nie zosta³a jeszcze przydzielona
+	// Zdolnoï¿½ï¿½ nie zostaï¿½a jeszcze przydzielona
 	return false;
 }
 
@@ -128,12 +128,12 @@ bool UGAS_InteractionsComponent::TryFindAbilityClassByTag(TSoftClassPtr<UGamepla
 	return false;
 }
 
-// Asynchroniczne ³adowanie klasy widgetu
+// Asynchroniczne ï¿½adowanie klasy widgetu
 void UGAS_InteractionsComponent::AsyncLoadWidgetClass(TSoftClassPtr<UUserWidget> WidgetClass)
 {
 	if (bCurrentlyLoadingWidget) return;
 
-	if (WidgetClass.IsValid()) // Jeœli asset jest ju¿ za³adowany, pomijamy async load
+	if (WidgetClass.IsValid()) // Jeï¿½li asset jest juï¿½ zaï¿½adowany, pomijamy async load
 	{
 		WidgetClassLoadingComplete();
 		return;
@@ -155,12 +155,12 @@ void UGAS_InteractionsComponent::AsyncLoadWidgetClass(TSoftClassPtr<UUserWidget>
 	);
 }
 
-// Asynchroniczne ³adowanie klasy zdolnoœci
+// Asynchroniczne ï¿½adowanie klasy zdolnoï¿½ci
 void UGAS_InteractionsComponent::AsyncLoadAbilityClass(TSoftClassPtr<UGameplayAbility> AbilityClass, bool TriggerDeletage)
 {
 	if (bCurrentylLoadingAbility) return;
 
-	if (AbilityClass.IsValid()) // Jeœli asset jest ju¿ za³adowany, pomijamy async load
+	if (AbilityClass.IsValid()) // Jeï¿½li asset jest juï¿½ zaï¿½adowany, pomijamy async load
 	{
 		AbilityClassLoadingComplete(AbilityClass);
 
@@ -187,16 +187,13 @@ void UGAS_InteractionsComponent::AsyncLoadAbilityClass(TSoftClassPtr<UGameplayAb
 		FStreamableDelegate::CreateUObject(this, &UGAS_InteractionsComponent::AbilityClassLoadingComplete, AbilityClass, TriggerDeletage)
 	);
 }
-
-
-// Funkcja wywo³ywana po za³adowaniu widgetu
+// Called after widget class has loaded
 void UGAS_InteractionsComponent::WidgetClassLoadingComplete()
 {
 	bCurrentlyLoadingWidget = false;
 	OnWidgetClassLoaded();
 }
-
-// Funkcja wywo³ywana po za³adowaniu zdolnoœci
+// Called after ability class has loaded
 void UGAS_InteractionsComponent::AbilityClassLoadingComplete(TSoftClassPtr<UGameplayAbility> SoftClass, bool TriggerDeletage)
 {
 	bCurrentylLoadingAbility = false;
@@ -215,7 +212,7 @@ void UGAS_InteractionsComponent::AbilityClassLoadingComplete(TSoftClassPtr<UGame
 	
 }
 
-// Domyœlne implementacje eventów BlueprintNativeEvent
+// Domyï¿½lne implementacje eventï¿½w BlueprintNativeEvent
 void UGAS_InteractionsComponent::OnWidgetClassLoaded_Implementation() {}
 void UGAS_InteractionsComponent::OnAbilityClassLoaded_Implementation(TSubclassOf<UGameplayAbility> AbilityClass) {}
 
@@ -305,7 +302,7 @@ void UGAS_InteractionsComponent::TrySpawnCorrectInteractionWidget()
 
 		if (AddConditionClass)
 		{
-			// Tworzymy instancjê klasy przekazanej jako typ
+			// Tworzymy instancjï¿½ klasy przekazanej jako typ
 			UInteractionWidgetCondition* ConditionInstance = NewObject<UInteractionWidgetCondition>(this, AddConditionClass);
 			if (ConditionInstance)
 			{
@@ -320,10 +317,10 @@ void UGAS_InteractionsComponent::TrySpawnCorrectInteractionWidget()
 			}
 		}
 
-		// Sekcja zwi¹zania z utworzeniem nowej instancji Widgetu. Obecnie mamy do dyspozycji 2 mo¿liwoœci. Podstawowo klasa widgetu jest oparta od HardReference okreœlona jako MainInteractionWidget
-		// Jednak czasami mo¿emy chcieæ zastosowaæ inn¹ klasê. W tym celu interaktywny aktor mo¿e posiadaæ klasê UUserWidget w postaci SoftReference, która powinna zostaæ ustorzona zamiast klasy
-		// MainInteractionWidget. Jednak aby tak siê sta³o najpierw wymagane jest za³adowanie klasy do pamiêci je¿eli jeszcze to nie nast¹pi³o. Je¿eli ³adowanie by³o wymagane, to instancja Widgetu
-		// zostanie utworzona dopiero podczas nastêpnego Tick-u.
+		// Sekcja zwiï¿½zania z utworzeniem nowej instancji Widgetu. Obecnie mamy do dyspozycji 2 moï¿½liwoï¿½ci. Podstawowo klasa widgetu jest oparta od HardReference okreï¿½lona jako MainInteractionWidget
+		// Jednak czasami moï¿½emy chcieï¿½ zastosowaï¿½ innï¿½ klasï¿½. W tym celu interaktywny aktor moï¿½e posiadaï¿½ klasï¿½ UUserWidget w postaci SoftReference, ktï¿½ra powinna zostaï¿½ ustorzona zamiast klasy
+		// MainInteractionWidget. Jednak aby tak siï¿½ staï¿½o najpierw wymagane jest zaï¿½adowanie klasy do pamiï¿½ci jeï¿½eli jeszcze to nie nastï¿½piï¿½o. Jeï¿½eli ï¿½adowanie byï¿½o wymagane, to instancja Widgetu
+		// zostanie utworzona dopiero podczas nastï¿½pnego Tick-u.
 		UUserWidget* ActorWidget = nullptr;
 		IInteractiveActorsInterface::Execute_BPI_IA_Get_CreatedWidgetInstance(IActor, ActorWidget);
 		if (!ActorWidget)
@@ -349,7 +346,7 @@ void UGAS_InteractionsComponent::TrySpawnCorrectInteractionWidget()
 				CurrentOverlapedActors.AddUnique(IActor);
 			}
 		}
-		// --------------------------------------------------------------------------------- KONIEC sekcji poœwiêconej Widgetowi
+		// --------------------------------------------------------------------------------- KONIEC sekcji poï¿½wiï¿½conej Widgetowi
 
 		CheckRequiredAbilityOnOverlap(IActor, ASC);
 
@@ -434,21 +431,21 @@ bool UGAS_InteractionsComponent::RemoveNotRequiredWidgetSingleActor(AActor* InAc
 	// Pobranie instancji widgetu aktora poprzez interfejs
 	IInteractiveActorsInterface::Execute_BPI_IA_Get_CreatedWidgetInstance(InActor, ActorWidget);
 
-	// Jeœli widget istnieje, usuñ go z ekranu i ustaw wskaŸnik na nullptr
+	// Jeï¿½li widget istnieje, usuï¿½ go z ekranu i ustaw wskaï¿½nik na nullptr
 	if (ActorWidget)
 	{
-		ActorWidget->RemoveFromParent();  // Usuniêcie widgetu z ekranu
-		ActorWidget = nullptr;            // Wyzerowanie wskaŸnika
+		ActorWidget->RemoveFromParent();  // Usuniï¿½cie widgetu z ekranu
+		ActorWidget = nullptr;            // Wyzerowanie wskaï¿½nika
 		IInteractiveActorsInterface::Execute_BPI_IA_Set_CreatedWidgetInstance(InActor, nullptr);
-		return true;  // Powiadomienie, ¿e usuniêto widget
+		return true;  // Powiadomienie, ï¿½e usuniï¿½to widget
 	}
 
-	return false; // Jeœli widget nie istnia³, zwracamy false
+	return false; // Jeï¿½li widget nie istniaï¿½, zwracamy false
 }
 
 void UGAS_InteractionsComponent::AddToViewportRequiredWidget(TSubclassOf<UUserWidget> WidgetClass, AActor* ForActor)
 {
-	if (!WidgetClass) return; // Upewnij siê, ¿e klasa widgetu nie jest pusta
+	if (!WidgetClass) return; // Upewnij siï¿½, ï¿½e klasa widgetu nie jest pusta
 
 	// Pobranie referencji do PlayerController dla indeksu gracza 0
 	APlayerController* PlayerController = UGameplayStatics::GetPlayerController(GetWorld(), PlayerControllerIndex);
@@ -461,7 +458,7 @@ void UGAS_InteractionsComponent::AddToViewportRequiredWidget(TSubclassOf<UUserWi
 	// Dodanie widgetu do ekranu
 	CreatedWidget->AddToViewport(-2);
 
-	IInteractiveActorsInterface::Execute_BPI_IA_Set_CreatedWidgetInstance(ForActor, CreatedWidget); //Wa¿ne
+	IInteractiveActorsInterface::Execute_BPI_IA_Set_CreatedWidgetInstance(ForActor, CreatedWidget); //Waï¿½ne
 
 	FVector WidgetPositionWS = ForActor->GetActorLocation();
 	IInteractiveActorsInterface::Execute_BPI_IA_Get_WidgetWorldPosition(ForActor, WidgetPositionWS);
@@ -676,7 +673,7 @@ void UGAS_InteractionsComponent::SortActorsBasedOn(TArray<AActor*>& InActors, EA
 {
 	if (SortingMethod == EAGLS_InteractiveActorsSort::NoSorting || InActors.Num() <= 1)
 	{
-		return; // Brak sortowania lub 1 aktor => zwróæ tablicê bez zmian
+		return; // Brak sortowania lub 1 aktor => zwrï¿½ï¿½ tablicï¿½ bez zmian
 	}
 
 	if (!RefChar)
@@ -687,8 +684,7 @@ void UGAS_InteractionsComponent::SortActorsBasedOn(TArray<AActor*>& InActors, EA
 
 	FVector CharacterLocation = RefChar->GetActorLocation();
 	FRotator CharacterRotation = RefChar->GetControlRotation();
-
-	// Funkcja lambda do sortowania aktorów
+    // Lambda used to sort candidate actors
 	auto SortingLambda = [&](AActor& A, AActor& B) -> bool
 		{
 			float ScoreA = 0.f;
@@ -703,14 +699,14 @@ void UGAS_InteractionsComponent::SortActorsBasedOn(TArray<AActor*>& InActors, EA
 				float DistanceA = FVector::DistSquared(CharacterLocation, LocationA);
 				float DistanceB = FVector::DistSquared(CharacterLocation, LocationB);
 
-				// Mniejszy dystans = wy¿szy priorytet
+				// Mniejszy dystans = wyï¿½szy priorytet
 				ScoreA += (1.f / (1.f + DistanceA));
 				ScoreB += (1.f / (1.f + DistanceB));
 			}
 
 			if (SortingMethod == EAGLS_InteractiveActorsSort::BasedOnAngle || SortingMethod == EAGLS_InteractiveActorsSort::DistanceAndAngle)
 			{
-				// Oblicz k¹t pomiêdzy kierunkiem postaci a aktorem
+				// Oblicz kï¿½t pomiï¿½dzy kierunkiem postaci a aktorem
 				FVector LookAtDirectionA = (LocationA - CharacterLocation).GetSafeNormal();
 				FVector LookAtDirectionB = (LocationB - CharacterLocation).GetSafeNormal();
 				FVector CharacterForward = CharacterRotation.Vector();
@@ -718,12 +714,12 @@ void UGAS_InteractionsComponent::SortActorsBasedOn(TArray<AActor*>& InActors, EA
 				float DotProductA = FVector::DotProduct(CharacterForward, LookAtDirectionA);
 				float DotProductB = FVector::DotProduct(CharacterForward, LookAtDirectionB);
 
-				// Wy¿szy iloczyn skalarny = aktor bardziej w linii wzroku postaci
+				// Wyï¿½szy iloczyn skalarny = aktor bardziej w linii wzroku postaci
 				ScoreA += (DotProductA + 1.f) / 2.f; // Normalizacja do zakresu [0,1]
 				ScoreB += (DotProductB + 1.f) / 2.f;
 			}
 
-			return ScoreA > ScoreB; // Sortowanie malej¹ce (wiêksza wartoœæ = wy¿szy priorytet)
+			return ScoreA > ScoreB; // Sortowanie malejï¿½ce (wiï¿½ksza wartoï¿½ï¿½ = wyï¿½szy priorytet)
 		};
 
 	InActors.Sort(SortingLambda);

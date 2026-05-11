@@ -23,11 +23,9 @@ protected:
     virtual FText GetDescriptionDetails() const override;
 
 private:
-
-    // Funkcja pomocnicza do obliczania score dla punktu
+    // Helper function used to calculate point score
     float CalculateScore(const FVector& Point, const FVector& EdgePoint, float DistanceTolerance) const;
-
-    // Parametry konfiguracyjne testu
+    // Test configuration parameters
     UPROPERTY(EditDefaultsOnly, Category = "Edge Test", meta = (ToolTip = "Searching for Nav edges distance per point"))
     float EdgesFindingRange;
 

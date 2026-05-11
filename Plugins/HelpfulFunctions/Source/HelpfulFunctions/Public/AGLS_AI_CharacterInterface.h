@@ -1,4 +1,4 @@
-﻿
+
 
 #pragma once
 
@@ -78,9 +78,7 @@ public:
 After locking the main function that determines the current capsule rotation by calling the BPI_AI_Set_LockRotationUpdate() interface function, 
 this declaration allows you to return information about whether the rotation has actually been locked.
 
-PL:
-Po zablokowaniu głównej funkcji określającej aktualną rotację kapsuły poprzez wywołanie funkcji interfejsu BPI_AI_Set_LockRotationUpdate(), za 
-pośrednictwem tej deklaracji można otrzymać informację, o tym czy rotacja faktycznie została zablokowana.*/
+*/
 	UFUNCTION(BlueprintCallable, BlueprintNativeEvent, Category = "BPI AI Character|Get")
 	void BPI_AI_Get_RotationLocked(bool& RotationIsLocked);
 
@@ -118,8 +116,7 @@ the CharacterMovementComponent can be:
 - float GroundFriction (taken from Curve Vector)
 Additionally, the Movement Model can affect the capsule interpolation speed (Rotation Curve).
 
-PL:
-Po odpowiednim nadpisaniu definicji funkcji, może ona wpływać na CharacterMovement Settings ustawiając tak zwane 'Movement Models'. Jednymi z takich parametrów ...*/
+*/
 	UFUNCTION(BlueprintCallable, BlueprintNativeEvent, Category = "BPI AI Character|Set")
 	void BPI_AI_Set_MovementSettingsByName(FName KeyName);
 
@@ -139,12 +136,7 @@ for the duration of the sequence, set your own orientation with SetActorRotation
 important to remember to unlock by calling back this interface! Failure to use this interface may result in capsule interpolation being colored to the given 
 orientation.
 
-PL:
-Ważna funkcja często wywoływana w Gameplay Abilities oraz innych sekwencjach. Wowłanie tej funkcji interfejsu pozwala na zablokowanie lub odblokowanie bazowego 
-systemu sterowania orientacją charakteru. Większość klas UCharacter  w projekcie AGLS zawiera własne podejście do kontrolowania rotacją kapsuły. Jednak w niekórych 
-sytuacjach np. kiedy wykonujemy sekwencję podnoszenia przedmiotu chcemy zastosować inny sposób obliczania rotacji. W tym celu na czas trwania sekwencji można 
-zablokować bazowy system rotacji, ustawić własną orientację SetActorRotation() + UpdateRotationVariables(...)*, a następnie odblokować system rotacji. Ważne jest 
-aby pamiętać o odblokowaniu. Nie zastosowanie tego interfejsu może prowadzić do kolidowania interpolacji kapsuły do zadanej orientacji.*/
+*/
 	UFUNCTION(BlueprintCallable, BlueprintNativeEvent, Category = "BPI AI Character|Set")
 	void BPI_AI_Set_LockRotationUpdate(bool LockUpdate);
 
@@ -161,10 +153,7 @@ Declared mainly for the purpose of constructing the 'AGLS_HumanAI_CharacterLogic
 in the form of an int variable. This is due to the fact that the 'ALSP2_MovementMode' enum class was created as a separate asset, which means that C++ does not 
 have access to such a data type. For this reason, this Enum is sent in a converted form as an int, byte and state name (FName).
 
-PL:
-Zadeklarowane głównie w celu konstrukcji klasy 'AGLS_HumanAI_CharacterLogicBase'. Pozwala pobrać informacji o LocomotionMode jako indeks w postaci zmiennej int. 
-Wynika to z faktu że klasa enum 'ALSP2_MovementMode' została utworzona jako oddzielny asset, co oznacza że C++ nie ma dostępu do takiego typu danych. Z tego też 
-powodu Enum ten jest przesyłany w przekonwertowanej formie jako int, byte oraz nazwa stanu (FName).*/
+*/
 	UFUNCTION(BlueprintCallable, BlueprintNativeEvent, Category = "BPI AI Character|Get", meta = (AdvancedDisplay = 1))
 	void BPI_AI_Get_LocomotionModeIndex(int& LocomotionIndex, uint8& LocomotionByte, FName& LocomotionName);
 
@@ -172,10 +161,7 @@ powodu Enum ten jest przesyłany w przekonwertowanej formie jako int, byte oraz 
 With this function you can get a reference to a PathActor instance that the AI ​​controller can follow. This interface is often called in controller classes or in the 
 BehaviorTree as BT_Servces or BT_Tasks. The reference is passed as AActor* which means that to get detailed path information you will need to do CastTo<class type>
 
-PL:
-Za pomocą tej funkcji można pobrać odniesienie do instancji PathActor, po której kontroler AI może podąrzać. Interfejs ten jest często wywoływany własnie w klasach 
-kontrolerów lub w BehaviorTree jako BT_Servces lub BT_Tasks. Odniesienie jest przekazywane jako AActor* co oznacza że aby otrzymać szczegółowe informacje o ścieżce 
-będzie wymagane wykonanie CastTo<class type>*/
+*/
 	UFUNCTION(BlueprintCallable, BlueprintNativeEvent, Category = "BPI AI Character|Get")
 	void BPI_AI_GetPathFollowActor(AActor*& PathActor) const;
 
@@ -188,10 +174,6 @@ będzie wymagane wykonanie CastTo<class type>*/
 Function intended for constructing a system based on reacting to bumps by other character instances. It can be called when the OnHit delegate detects that the capsule 
 has been hit. For example, this function is used by 'AGLS_ZombieCharacter_Base' to activate root motion animations showing the reaction to taps, stumbles or pushes.
 
-PL:
-Funkcja przeznaczona dla konstrukcji systemu polegającego na reagowaniu na popchnięcia przez inne instancje charakterów. Może być wywoływana w momencie kiedy delegate 
-OnHit wykryje że kapsuła została uderzona. Przykładowo funkcja ta używana jest przez 'AGLS_ZombieCharacter_Base' do aktywowania animacji root motion przedstawiających 
-reakcję na stuknięcia, potknięcia lub popchnięcia.
 */
 	UFUNCTION(BlueprintCallable, BlueprintNativeEvent, Category = "BPI AI Character|Set")
 	void BPI_AI_BumpReactTrigger(ACharacter* From, FHitResult HitResult);
@@ -200,10 +182,7 @@ reakcję na stuknięcia, potknięcia lub popchnięcia.
 Function usually called when the player activates the gameplay ability 'Stealth Finisher'. In such case the character that was selected as Victim can be informed about it. 
 For example when we start SF then Physic Asset should be deactivated. For this purpose we can use this interface function to make changes to SkeletalMesh for a given instance.
 
-PL:
-Funkcja zazwyczaj wywoływana w momencie kiedy gracz aktywuje gameplay ability 'Stealth Finisher'. W takim przypadku charakter który zoztał wybrany jako Victim może zostać o tym 
-poinformowany. Przykładowo kiedy uruchamiamy SF to wtedy Physic Asset powinien być deaktywowany. W tym celu można użyć właśnie tej funkcji interfejsu aby wprowadzić zmiany w 
-SkeletalMesh dla danej instancji.*/
+*/
 	UFUNCTION(BlueprintCallable, BlueprintNativeEvent, Category = "BPI AI Character|Set", meta = (DisplayName="BPI_AI_WhenIsVictimForFinisher"))
 	void BPI_AI_FinisherOrMeleeStarted(bool Started, int ActionIndex);
 

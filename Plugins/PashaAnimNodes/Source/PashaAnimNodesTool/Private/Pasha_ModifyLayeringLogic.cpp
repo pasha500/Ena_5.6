@@ -33,8 +33,7 @@ void FAnimNode_ModifyLayering::Evaluate_AnyThread(FPoseContext& Output)
 	Output = SourceData;
 
 	if (InternalBlendAlpha <= KINDA_SMALL_NUMBER) return; //Do not perform curves modification when alpha value is to small
-
-	// Nie potrzebujesz ju?USkeleton do pobrania UID krzywej.
+    // No USkeleton lookup needed here for curve UID resolution.
 	for (FLayeringCurvesData& CurveNameValue : CurvesStructure)
 	{
 		FString EnumToName;

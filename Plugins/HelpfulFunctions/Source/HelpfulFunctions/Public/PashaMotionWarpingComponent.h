@@ -66,12 +66,6 @@ protected:
 	UFUNCTION(BlueprintCallable, meta = (WorldContext = "WorldContextObject", DisplayName = "Reset Values", Keywords = "MotionWarping"))
 	virtual void ResetValues();
 
-	// PL: 
-	// Ustaw punkt relacji pomiedzy MotionWarping a TargetActor. Za ka�dym razem kiedy b�dzie u�ywany MotionWarping, zostanie pobrana aktualna 
-	// pozycja TargetActor, aby skorygowa� ruch. Dodanie 'Const Offset' spowoduje przesuniecie pozycji Akora o ten wektor. Opcja 'Exclude 
-	// Root Motion' daje rezultat tylko wtedy gdy nasz Aktor odgrywa Animacj� z wyodr�bnionym RootMotion, kt�ry zosta� zapisany jako Anim Curve. 
-	// W��czenie tego spowoduj� usuni�cie przesuniecia RootMotion z aktualniej pozycji Aktora.
-	//
 	// ENG:
 	// Set a relationship point between MotionWarping and TargetActor. Each time MotionWarping is used, the current TargetActor position will 
 	// be retrieved to correct for motion. Adding 'Const Offset' will move the Actor's position by this vector. The 'Exclude Root Motion' option 

@@ -93,29 +93,22 @@ struct PASHAANIMNODESTOOL_API FPasha_LayerBlendingLogic : public FAnimNode_Base
     virtual void Evaluate_AnyThread(FPoseContext& Output) override;
     virtual void GatherDebugData(FNodeDebugData& DebugData) override;
     // End of FAnimNode_Base interface
-
-
-	//podstawowe mieszanie puz za pomoc?warto�ci alpha
+    // Basic pose blending using alpha
     virtual void BlendTwoPosesContext(FPoseContext& PoseA, FPoseContext& PoseB, float Alpha, FPoseContext& OP);
-
-	//Funkcja twrz�ca animacj?additive z dw?h wej�� - wynikiem jest poza additive
+    // Creates additive pose from two inputs
     virtual void MakeAdditiveContext(FPoseContext& Base, FPoseContext& Add, bool MeshSpace, FPoseContext& OP);
-
-	//podstawowa funckja zawierajace ro�ne sopsoby mieszania puz
+    // Core function with multiple pose blend modes
     virtual void ApplyAdditiveWithSlotEvaluate(FPoseContext& OP, FPoseContext& LBase, FPoseContext& LOverlay, FPoseContext& LAdditive, float AddAlpha, float BlendAlpha, 
         FName AnimSlotName, FSlotNodeWeightInfo SlotWeight, bool UseMeshSpace);
-
-	//funkcja optymalizuj�ce - wybiera elementy kt?e musz?by?z aktualiowane, oraz takie, kt?e mo�na pomin��
+    // Optimization step: updates only required elements
     virtual void ApplyAdditiveWithSlotUpdate(FPoseContext& LBase, FPoseContext& LOverlay, FPoseContext& LAdditive, float AddAlpha, float BlendAlpha, FName AnimSlotName);
-
-	//Utworz definicje mieszania poprzez wagi przypisanych do kosci
+    // Builds per-bone blend definition from assigned weights
 	virtual void BlendPerBoneEvaluate(FPoseContext& OP, FPoseContext& PoseA, FPoseContext& PoseB, bool UseMeshSpaceRotation, bool UseMeshSpaceScaleBlend, 
 		TArray<FPerBoneBlendWeight> CurrentBoneBlendW, bool UseBlendByWeight, float BlendAlpha, FBlendedCurve CurvesA, FBlendedCurve CurvesB);
 
 	//Get Curve Value From Skeleton
 	virtual float CurveValue(FName CurveName);
-
-	//Update Slot - Bez tego nie bedzie mozliwosci wykonania animacji montage dla wybranego slotu
+    // Slot update required for montage playback on the selected slot
 	virtual void SlotUpdate(const FAnimationUpdateContext& Context, FName SName, FPoseLink InputPose, FSlotNodeWeightInfo& Weight);
 
 	// Rebuild cache per bone blend weights from the skeleton

@@ -7,8 +7,7 @@ UALS_DamageConfigData::UALS_DamageConfigData()
     // Dodaj dwa klucze do krzywej float.
     FKeyHandle Key1Handle = ScalingCurve.GetRichCurve()->AddKey(0.0f, 0.0f);
     FKeyHandle Key2Handle = ScalingCurve.GetRichCurve()->AddKey(1.0f, 1.0f);
-
-    // Ustaw interpolacjê kluczy na liniow¹.
+    // Set key interpolation to linear.
     ScalingCurve.GetRichCurve()->SetKeyInterpMode(Key1Handle, RCIM_Linear);
     ScalingCurve.GetRichCurve()->SetKeyInterpMode(Key2Handle, RCIM_Linear);
 
