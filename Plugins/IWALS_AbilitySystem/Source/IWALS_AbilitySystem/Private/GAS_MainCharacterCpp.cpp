@@ -2,6 +2,7 @@
 
 
 #include "GAS_MainCharacterCpp.h"
+#include "IWALS_SniperScopeProvider.h"
 #include "AGLS_ZombieAttacksComponentCore.h"
 #include "GameplayTagsManager.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -882,6 +883,291 @@ namespace
 		return false;
 	}
 
+	bool ContainsAnySignalToken(const FString& SourceText, const TArray<FString>& Tokens)
+	{
+		for (const FString& Token : Tokens)
+		{
+			if (!Token.IsEmpty() && SourceText.Contains(Token, ESearchCase::IgnoreCase))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	bool IsLikelyQueryFunctionName(const FString& FunctionName)
+	{
+		return
+			FunctionName.StartsWith(TEXT("Is"), ESearchCase::IgnoreCase) ||
+			FunctionName.StartsWith(TEXT("Get"), ESearchCase::IgnoreCase) ||
+			FunctionName.StartsWith(TEXT("Has"), ESearchCase::IgnoreCase) ||
+			FunctionName.StartsWith(TEXT("Can"), ESearchCase::IgnoreCase) ||
+			FunctionName.StartsWith(TEXT("Should"), ESearchCase::IgnoreCase) ||
+			FunctionName.StartsWith(TEXT("Was"), ESearchCase::IgnoreCase);
+	}
+
+	bool TryReadBoolSignalsByTokens(UObject* Object, const TArray<FString>& Tokens, bool& OutValue)
+	{
+		if (!Object || Tokens.Num() == 0)
+		{
+			return false;
+		}
+
+		bool bFoundAnySignal = false;
+		bool bFoundTrueSignal = false;
+
+		for (TFieldIterator<FProperty> It(Object->GetClass(), EFieldIterationFlags::IncludeSuper); It; ++It)
+		{
+			FProperty* Property = *It;
+			if (!Property)
+			{
+				continue;
+			}
+
+			const FString PropertyName = Property->GetName();
+			if (!ContainsAnySignalToken(PropertyName, Tokens))
+			{
+				continue;
+			}
+
+			if (FBoolProperty* BoolProperty = CastField<FBoolProperty>(Property))
+			{
+				bFoundAnySignal = true;
+				if (BoolProperty->GetPropertyValue_InContainer(Object))
+				{
+					bFoundTrueSignal = true;
+					break;
+				}
+			}
+		}
+
+		if (!bFoundTrueSignal)
+		{
+			for (TFieldIterator<UFunction> It(Object->GetClass(), EFieldIterationFlags::IncludeSuper); It; ++It)
+			{
+				UFunction* Function = *It;
+				if (!Function)
+				{
+					continue;
+				}
+
+				const FString FunctionName = Function->GetName();
+				if (!ContainsAnySignalToken(FunctionName, Tokens) || !IsLikelyQueryFunctionName(FunctionName))
+				{
+					continue;
+				}
+
+				if (!HasInvokableNoInputSignature(Function))
+				{
+					continue;
+				}
+
+				FProperty* ReturnProperty = Function->GetReturnProperty();
+				FBoolProperty* ReturnBoolProperty = CastField<FBoolProperty>(ReturnProperty);
+				if (!ReturnBoolProperty)
+				{
+					continue;
+				}
+
+				bFoundAnySignal = true;
+				uint8* Params = (uint8*)FMemory_Alloca(Function->ParmsSize);
+				FMemory::Memzero(Params, Function->ParmsSize);
+				InitFunctionParams(Function, Params);
+				Object->ProcessEvent(Function, Params);
+				const bool bValue = ReturnBoolProperty->GetPropertyValue_InContainer(Params);
+				DestroyFunctionParams(Function, Params);
+				if (bValue)
+				{
+					bFoundTrueSignal = true;
+					break;
+				}
+			}
+		}
+
+		if (!bFoundAnySignal)
+		{
+			return false;
+		}
+
+		OutValue = bFoundTrueSignal;
+		return true;
+	}
+
+	bool TryReadFloatSignalsByTokens(UObject* Object, const TArray<FString>& Tokens, float& OutValue)
+	{
+		if (!Object || Tokens.Num() == 0)
+		{
+			return false;
+		}
+
+		for (TFieldIterator<UFunction> It(Object->GetClass(), EFieldIterationFlags::IncludeSuper); It; ++It)
+		{
+			UFunction* Function = *It;
+			if (!Function)
+			{
+				continue;
+			}
+
+			const FString FunctionName = Function->GetName();
+			if (!ContainsAnySignalToken(FunctionName, Tokens) || !IsLikelyQueryFunctionName(FunctionName))
+			{
+				continue;
+			}
+
+			if (!HasInvokableNoInputSignature(Function))
+			{
+				continue;
+			}
+
+			FProperty* ReturnProperty = Function->GetReturnProperty();
+			if (!ReturnProperty)
+			{
+				continue;
+			}
+
+			uint8* Params = (uint8*)FMemory_Alloca(Function->ParmsSize);
+			FMemory::Memzero(Params, Function->ParmsSize);
+			InitFunctionParams(Function, Params);
+			Object->ProcessEvent(Function, Params);
+
+			double NumericValue = 0.0;
+			bool bHasValue = false;
+			if (FFloatProperty* ReturnFloatProperty = CastField<FFloatProperty>(ReturnProperty))
+			{
+				NumericValue = ReturnFloatProperty->GetPropertyValue_InContainer(Params);
+				bHasValue = true;
+			}
+			else if (FDoubleProperty* ReturnDoubleProperty = CastField<FDoubleProperty>(ReturnProperty))
+			{
+				NumericValue = ReturnDoubleProperty->GetPropertyValue_InContainer(Params);
+				bHasValue = true;
+			}
+			else if (FNumericProperty* ReturnNumericProperty = CastField<FNumericProperty>(ReturnProperty))
+			{
+				if (ReturnNumericProperty->IsFloatingPoint())
+				{
+					NumericValue = ReturnNumericProperty->GetFloatingPointPropertyValue(ReturnNumericProperty->ContainerPtrToValuePtr<void>(Params));
+					bHasValue = true;
+				}
+			}
+
+			DestroyFunctionParams(Function, Params);
+			if (bHasValue && FMath::IsFinite(NumericValue))
+			{
+				OutValue = static_cast<float>(NumericValue);
+				return true;
+			}
+		}
+
+		for (TFieldIterator<FProperty> It(Object->GetClass(), EFieldIterationFlags::IncludeSuper); It; ++It)
+		{
+			FProperty* Property = *It;
+			if (!Property)
+			{
+				continue;
+			}
+
+			const FString PropertyName = Property->GetName();
+			if (!ContainsAnySignalToken(PropertyName, Tokens))
+			{
+				continue;
+			}
+
+			double NumericValue = 0.0;
+			bool bHasValue = false;
+			if (FFloatProperty* FloatProperty = CastField<FFloatProperty>(Property))
+			{
+				NumericValue = FloatProperty->GetPropertyValue_InContainer(Object);
+				bHasValue = true;
+			}
+			else if (FDoubleProperty* DoubleProperty = CastField<FDoubleProperty>(Property))
+			{
+				NumericValue = DoubleProperty->GetPropertyValue_InContainer(Object);
+				bHasValue = true;
+			}
+			else if (FNumericProperty* NumericProperty = CastField<FNumericProperty>(Property))
+			{
+				if (NumericProperty->IsFloatingPoint())
+				{
+					NumericValue = NumericProperty->GetFloatingPointPropertyValue(NumericProperty->ContainerPtrToValuePtr<void>(Object));
+					bHasValue = true;
+				}
+			}
+
+			if (bHasValue && FMath::IsFinite(NumericValue))
+			{
+				OutValue = static_cast<float>(NumericValue);
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	bool DoesObjectLookLikeSniperWeapon(const UObject* Object, const TArray<FString>& ActivationTokens)
+	{
+		if (!IsValid(Object) || ActivationTokens.Num() == 0)
+		{
+			return false;
+		}
+
+		const FString CombinedName = Object->GetName() + TEXT(" ") + Object->GetClass()->GetName() + TEXT(" ") + Object->GetPathName();
+		if (ContainsAnySignalToken(CombinedName, ActivationTokens))
+		{
+			return true;
+		}
+
+		if (const AActor* AsActor = Cast<AActor>(Object))
+		{
+			for (const FName& Tag : AsActor->Tags)
+			{
+				if (ContainsAnySignalToken(Tag.ToString(), ActivationTokens))
+				{
+					return true;
+				}
+			}
+
+			TInlineComponentArray<UMeshComponent*> MeshComponents(const_cast<AActor*>(AsActor));
+			for (const UMeshComponent* MeshComponent : MeshComponents)
+			{
+				if (!IsValid(MeshComponent))
+				{
+					continue;
+				}
+
+				const FString ComponentName = MeshComponent->GetName() + TEXT(" ") + MeshComponent->GetPathName();
+				if (ContainsAnySignalToken(ComponentName, ActivationTokens))
+				{
+					return true;
+				}
+
+				if (const USkeletalMeshComponent* SkeletalComp = Cast<USkeletalMeshComponent>(MeshComponent))
+				{
+					if (const USkeletalMesh* SkeletalMeshAsset = SkeletalComp->GetSkeletalMeshAsset())
+					{
+						if (ContainsAnySignalToken(SkeletalMeshAsset->GetName() + TEXT(" ") + SkeletalMeshAsset->GetPathName(), ActivationTokens))
+						{
+							return true;
+						}
+					}
+				}
+
+				if (const UStaticMeshComponent* StaticComp = Cast<UStaticMeshComponent>(MeshComponent))
+				{
+					if (const UStaticMesh* StaticMeshAsset = StaticComp->GetStaticMesh())
+					{
+						if (ContainsAnySignalToken(StaticMeshAsset->GetName() + TEXT(" ") + StaticMeshAsset->GetPathName(), ActivationTokens))
+						{
+							return true;
+						}
+					}
+				}
+			}
+		}
+
+		return false;
+	}
+
 	bool CallFunctionSetIntArg(UObject* Object, std::initializer_list<const TCHAR*> FunctionNames, int64 IntValue)
 	{
 		UFunction* Function = FindFirstFunctionByNames(Object, FunctionNames);
@@ -1676,6 +1962,17 @@ void AGAS_MainCharacterCpp::BeginPlay()
 	DefaultSpringArmTargetOffset = FVector::ZeroVector;
 	DefaultCameraRelativeLocation = FVector::ZeroVector;
 	DefaultCameraRelativeRotation = FRotator::ZeroRotator;
+	SniperScopePolicyElapsedSeconds = 0.0f;
+	bSniperScopePresentationActive = false;
+	bHasSniperScopeStoredFOV = false;
+	SniperScopeStoredFOV = 0.0f;
+	SniperScopeMeshStates.Reset();
+	bNativeFPSActive = false;
+	bNativeHasTPSStored = false;
+	if (bNativeDefaultFirstPerson)
+	{
+		NativeSwitchToFirstPerson();
+	}
 	StoreDefaultCameraValues();
 	EnsureRaidCompassWidget();
 	EnforceNoZombieGrabAbilities();
@@ -1690,6 +1987,7 @@ void AGAS_MainCharacterCpp::BeginPlay()
 void AGAS_MainCharacterCpp::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
 	LockOnSweepTick.UnRegisterTickFunction();
+	RestoreSniperScopePresentation();
 	Super::EndPlay(EndPlayReason);
 }
 
@@ -1823,6 +2121,7 @@ void AGAS_MainCharacterCpp::Tick(float DeltaTime)
 		}
 	}
 
+	UpdateSniperScopePresentation(DeltaTime);
 }
 
 float AGAS_MainCharacterCpp::TakeDamage(float DamageAmount, const FDamageEvent& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
@@ -2076,6 +2375,778 @@ bool AGAS_MainCharacterCpp::IsMeleeLockOnSlotEquipped() const
 
 	// Prefer slot 2 gate; if slot signal is unavailable, overlay-based fallback controls leakage.
 	return bMeleeSlotEquipped;
+}
+
+void AGAS_MainCharacterCpp::CollectSniperScopeProviders(TArray<UObject*>& OutProviders) const
+{
+	OutProviders.Reset();
+
+	auto TryAddProvider = [&OutProviders](UObject* Candidate)
+	{
+		if (!IsValid(Candidate))
+		{
+			return;
+		}
+
+		if (!Candidate->GetClass()->ImplementsInterface(UIWALS_SniperScopeProvider::StaticClass()))
+		{
+			return;
+		}
+
+		OutProviders.AddUnique(Candidate);
+	};
+
+	TryAddProvider(const_cast<AGAS_MainCharacterCpp*>(this));
+
+	auto TryResolveWeaponFromObject = [](UObject* SourceObject) -> UObject*
+	{
+		if (!IsValid(SourceObject))
+		{
+			return nullptr;
+		}
+
+		UObject* CurrentWeaponObject =
+			CallFunctionGetObject(SourceObject,
+				{
+					TEXT("GetCurrentWeapon"),
+					TEXT("GetCurrentWeaponActor"),
+					TEXT("GetEquippedWeapon"),
+					TEXT("GetCurrentItem"),
+					TEXT("GetEquippedItem"),
+					TEXT("GetCurrentRangedWeapon"),
+					TEXT("GetCurrentPrimaryWeapon"),
+					TEXT("GetCurrentGun"),
+					TEXT("GetActiveWeapon")
+				});
+		if (!CurrentWeaponObject)
+		{
+			CurrentWeaponObject = ReadObjectPropertyByNames(SourceObject,
+				{
+					TEXT("CurrentWeapon"),
+					TEXT("EquippedWeapon"),
+					TEXT("CurrentItem"),
+					TEXT("EquippedItem"),
+					TEXT("CurrentRangedWeapon"),
+					TEXT("CurrentPrimaryWeapon"),
+					TEXT("CurrentGun"),
+					TEXT("ActiveWeapon")
+				});
+		}
+
+		return CurrentWeaponObject;
+	};
+
+	UObject* CurrentWeaponObject = TryResolveWeaponFromObject(const_cast<AGAS_MainCharacterCpp*>(this));
+
+	TInlineComponentArray<UActorComponent*> OwnerComponentsArray(const_cast<AGAS_MainCharacterCpp*>(this));
+	for (UActorComponent* OwnedComponent : OwnerComponentsArray)
+	{
+		if (!IsValid(OwnedComponent))
+		{
+			continue;
+		}
+
+		TryAddProvider(OwnedComponent);
+
+		if (!IsValid(CurrentWeaponObject))
+		{
+			CurrentWeaponObject = TryResolveWeaponFromObject(OwnedComponent);
+		}
+	}
+
+	TArray<AActor*> AttachedActors;
+	const_cast<AGAS_MainCharacterCpp*>(this)->GetAttachedActors(AttachedActors, true, true);
+	for (AActor* AttachedActor : AttachedActors)
+	{
+		if (!IsValid(AttachedActor))
+		{
+			continue;
+		}
+
+		TryAddProvider(AttachedActor);
+
+		TInlineComponentArray<UActorComponent*> AttachedComponents(AttachedActor);
+		for (UActorComponent* AttachedComponent : AttachedComponents)
+		{
+			TryAddProvider(AttachedComponent);
+		}
+
+		if (!IsValid(CurrentWeaponObject))
+		{
+			CurrentWeaponObject = TryResolveWeaponFromObject(AttachedActor);
+		}
+	}
+
+	TInlineComponentArray<UChildActorComponent*> ChildActorComponents(const_cast<AGAS_MainCharacterCpp*>(this));
+	for (UChildActorComponent* ChildActorComponent : ChildActorComponents)
+	{
+		if (!IsValid(ChildActorComponent))
+		{
+			continue;
+		}
+
+		if (AActor* ChildActor = ChildActorComponent->GetChildActor())
+		{
+			TryAddProvider(ChildActor);
+
+			TInlineComponentArray<UActorComponent*> ChildComponents(ChildActor);
+			for (UActorComponent* ChildComponent : ChildComponents)
+			{
+				TryAddProvider(ChildComponent);
+			}
+		}
+	}
+
+	TryAddProvider(CurrentWeaponObject);
+}
+
+bool AGAS_MainCharacterCpp::TryResolveSniperScopePresentationFromProviders(
+	float& OutDesiredFOV,
+	TArray<FName>& OutKeepVisibleTags,
+	bool& bOutHasAuthoritativeProvider) const
+{
+	OutDesiredFOV = 0.0f;
+	OutKeepVisibleTags.Reset();
+	bOutHasAuthoritativeProvider = false;
+
+	TArray<UObject*> ScopeProviders;
+	CollectSniperScopeProviders(ScopeProviders);
+	if (ScopeProviders.Num() == 0)
+	{
+		return false;
+	}
+
+	FIWALSSniperScopeViewState ResolvedState;
+	bool bHasResolvedState = false;
+
+	for (UObject* ProviderObject : ScopeProviders)
+	{
+		if (!IsValid(ProviderObject))
+		{
+			continue;
+		}
+
+		FIWALSSniperScopeViewState CandidateState;
+		const bool bProvided = IIWALS_SniperScopeProvider::Execute_IWALS_GetSniperScopeViewState(ProviderObject, CandidateState);
+		if (!bProvided || !CandidateState.bIsValid)
+		{
+			continue;
+		}
+
+		bOutHasAuthoritativeProvider = true;
+		bHasResolvedState = true;
+		ResolvedState = CandidateState;
+
+		// Prefer an explicitly active scoped state over any inactive/neutral report.
+		if (CandidateState.bIsSniperWeapon && CandidateState.bIsAimingDownSights)
+		{
+			break;
+		}
+	}
+
+	if (!bHasResolvedState)
+	{
+		return false;
+	}
+
+	if (!(ResolvedState.bIsSniperWeapon && ResolvedState.bIsAimingDownSights))
+	{
+		return false;
+	}
+
+	if (ResolvedState.bUseScopedFOV && FMath::IsFinite(ResolvedState.ScopedFOV) && ResolvedState.ScopedFOV > 1.0f && ResolvedState.ScopedFOV < 179.0f)
+	{
+		OutDesiredFOV = ResolvedState.ScopedFOV;
+	}
+	else if (bSniperScopeUseFallbackFOV)
+	{
+		OutDesiredFOV = SniperScopeFallbackFOV;
+	}
+
+	for (const FName& KeepTag : ResolvedState.KeepVisibleComponentTags)
+	{
+		if (!KeepTag.IsNone())
+		{
+			OutKeepVisibleTags.AddUnique(KeepTag);
+		}
+	}
+
+	return true;
+}
+
+bool AGAS_MainCharacterCpp::ResolveSniperScopePresentationState(float& OutDesiredFOV, TArray<FName>& OutKeepVisibleTags) const
+{
+	OutDesiredFOV = 0.0f;
+	OutKeepVisibleTags.Reset();
+
+	if (!bEnableSniperScopePresentationPolicy)
+	{
+		return false;
+	}
+
+	const APlayerController* LocalPC = Cast<APlayerController>(GetController());
+	if (!IsValid(LocalPC) || !LocalPC->IsLocalController())
+	{
+		return false;
+	}
+
+	bool bHasAuthoritativeProvider = false;
+	if (bEnableSniperScopeProviderPipeline)
+	{
+		const bool bShouldApplyFromProvider =
+			TryResolveSniperScopePresentationFromProviders(
+				OutDesiredFOV,
+				OutKeepVisibleTags,
+				bHasAuthoritativeProvider);
+		if (bHasAuthoritativeProvider)
+		{
+			return bShouldApplyFromProvider;
+		}
+	}
+
+	// ── Phase 3: GAS 태그 기반 스나이퍼 판정 ─────────────────────────────────
+	// NativeSniperWeaponTags 설정 시 결과가 권위적 — 레거시 문자열 폴백 건너뜀.
+	if (IsValid(AbilitySystemComponent) && !NativeSniperWeaponTags.IsEmpty())
+	{
+		const bool bTagSniperActive = AbilitySystemComponent->HasAnyMatchingGameplayTags(NativeSniperWeaponTags);
+		if (bTagSniperActive)
+		{
+			bool bTagADSActive = false;
+			if (!NativeSniperADSTags.IsEmpty())
+			{
+				bTagADSActive = AbilitySystemComponent->HasAnyMatchingGameplayTags(NativeSniperADSTags);
+			}
+			if (!bTagADSActive)
+			{
+				// NativeSniperADSTags 미설정 시 기존 Aim 태그 계열로 폴백
+				static const FName KnownAimNames[] = {
+					"Action.Aim", "Action.Aiming", "State.Aim", "State.Aiming", "Action.ADS", "State.ADS"
+				};
+				for (const FName& AimName : KnownAimNames)
+				{
+					const FGameplayTag AimTag = FGameplayTag::RequestGameplayTag(AimName, false);
+					if (AimTag.IsValid() && AbilitySystemComponent->HasMatchingGameplayTag(AimTag))
+					{
+						bTagADSActive = true;
+						break;
+					}
+				}
+			}
+
+			if (bTagADSActive)
+			{
+				// GAS 태그 경로는 Provider의 ScopedFOV 없으므로 항상 FallbackFOV 사용
+				OutDesiredFOV = SniperScopeFallbackFOV;
+				return true;
+			}
+		}
+		// NativeSniperWeaponTags 설정됨 → 태그 미매칭/비ADS이면 레거시 건너뜀
+		return false;
+	}
+
+	if (!bAllowLegacySniperScopeSignalFallback)
+	{
+		return false;
+	}
+
+	UObject* CurrentWeaponObject = nullptr;
+	bool bAimSignalFound = false;
+	bool bAimSignalActive = false;
+	bool bSniperSignalFound = false;
+	bool bSniperSignalActive = false;
+	bool bHasFOVSignal = false;
+	float DetectedFOV = 0.0f;
+	float ReferenceFOV = 0.0f;
+	bool bHasReferenceFOV = false;
+
+	if (const UCameraComponent* CameraComponent = ResolveLockOnCamera())
+	{
+		ReferenceFOV = CameraComponent->FieldOfView;
+		bHasReferenceFOV = FMath::IsFinite(ReferenceFOV) && ReferenceFOV > 1.0f;
+	}
+	if (!bHasReferenceFOV && IsValid(LocalPC->PlayerCameraManager))
+	{
+		ReferenceFOV = LocalPC->PlayerCameraManager->GetFOVAngle();
+		bHasReferenceFOV = FMath::IsFinite(ReferenceFOV) && ReferenceFOV > 1.0f;
+	}
+
+	auto TryResolveWeaponFromObject = [&CurrentWeaponObject](UObject* SourceObject)
+	{
+		if (!IsValid(SourceObject) || IsValid(CurrentWeaponObject))
+		{
+			return;
+		}
+
+		CurrentWeaponObject =
+			CallFunctionGetObject(SourceObject,
+				{
+					TEXT("GetCurrentWeapon"),
+					TEXT("GetCurrentWeaponActor"),
+					TEXT("GetEquippedWeapon"),
+					TEXT("GetCurrentItem"),
+					TEXT("GetEquippedItem"),
+					TEXT("GetCurrentRangedWeapon"),
+					TEXT("GetCurrentPrimaryWeapon"),
+					TEXT("GetCurrentGun"),
+					TEXT("GetActiveWeapon")
+				});
+		if (!CurrentWeaponObject)
+		{
+			CurrentWeaponObject = ReadObjectPropertyByNames(SourceObject,
+				{
+					TEXT("CurrentWeapon"),
+					TEXT("EquippedWeapon"),
+					TEXT("CurrentItem"),
+					TEXT("EquippedItem"),
+					TEXT("CurrentRangedWeapon"),
+					TEXT("CurrentPrimaryWeapon"),
+					TEXT("CurrentGun"),
+					TEXT("ActiveWeapon")
+				});
+		}
+	};
+
+	auto ProbeSignalsFromObject = [&](UObject* SourceObject, const bool bAllowFOVRead)
+	{
+		if (!IsValid(SourceObject))
+		{
+			return;
+		}
+
+		TryResolveWeaponFromObject(SourceObject);
+
+		bool bAimSignalValue = false;
+		if (TryReadBoolSignalsByTokens(SourceObject, SniperScopeAimSignalTokens, bAimSignalValue))
+		{
+			bAimSignalFound = true;
+			if (bAimSignalValue)
+			{
+				bAimSignalActive = true;
+			}
+		}
+
+		if (bAllowFOVRead && !bHasFOVSignal)
+		{
+			float CandidateFOV = 0.0f;
+			if (TryReadFloatSignalsByTokens(SourceObject, SniperScopeFovSignalTokens, CandidateFOV) &&
+				FMath::IsFinite(CandidateFOV) &&
+				CandidateFOV >= 10.0f &&
+				CandidateFOV <= 170.0f)
+			{
+				bool bAcceptCandidate = true;
+				if (bHasReferenceFOV)
+				{
+					// Accept only zoom-like values to avoid picking up baseline/default FOV properties.
+					const bool bNarrowerThanCurrent = CandidateFOV <= (ReferenceFOV - 0.5f);
+					const bool bAlreadyZoomedMatch = (ReferenceFOV <= 60.0f) && (FMath::Abs(CandidateFOV - ReferenceFOV) <= 0.5f);
+					const bool bNearConfiguredFallback =
+						bSniperScopeUseFallbackFOV &&
+						(FMath::Abs(CandidateFOV - SniperScopeFallbackFOV) <= 10.0f);
+					bAcceptCandidate = bNarrowerThanCurrent || bAlreadyZoomedMatch || bNearConfiguredFallback;
+				}
+
+				if (bAcceptCandidate)
+				{
+					bHasFOVSignal = true;
+					DetectedFOV = CandidateFOV;
+				}
+			}
+		}
+	};
+
+	ProbeSignalsFromObject(const_cast<AGAS_MainCharacterCpp*>(this), false);
+
+	TInlineComponentArray<UActorComponent*> OwnerComponentsArray(const_cast<AGAS_MainCharacterCpp*>(this));
+	for (UActorComponent* OwnedComponent : OwnerComponentsArray)
+	{
+		if (!IsValid(OwnedComponent))
+		{
+			continue;
+		}
+
+		const bool bComponentLooksSniper = DoesObjectLookLikeSniperWeapon(OwnedComponent, SniperScopeActivationTokens);
+		ProbeSignalsFromObject(OwnedComponent, bComponentLooksSniper);
+		if (bComponentLooksSniper)
+		{
+			bSniperSignalFound = true;
+			bSniperSignalActive = true;
+			if (!IsValid(CurrentWeaponObject))
+			{
+				CurrentWeaponObject = OwnedComponent;
+			}
+		}
+	}
+
+	TArray<AActor*> AttachedActors;
+	const_cast<AGAS_MainCharacterCpp*>(this)->GetAttachedActors(AttachedActors, true, true);
+	for (AActor* AttachedActor : AttachedActors)
+	{
+		if (!IsValid(AttachedActor))
+		{
+			continue;
+		}
+
+		const bool bAttachedLooksSniper = DoesObjectLookLikeSniperWeapon(AttachedActor, SniperScopeActivationTokens);
+		ProbeSignalsFromObject(AttachedActor, bAttachedLooksSniper);
+		if (bAttachedLooksSniper)
+		{
+			bSniperSignalFound = true;
+			bSniperSignalActive = true;
+			if (!IsValid(CurrentWeaponObject))
+			{
+				CurrentWeaponObject = AttachedActor;
+			}
+		}
+	}
+
+	if (IsValid(CurrentWeaponObject))
+	{
+		const bool bCurrentWeaponLooksSniper = DoesObjectLookLikeSniperWeapon(CurrentWeaponObject, SniperScopeActivationTokens);
+		ProbeSignalsFromObject(CurrentWeaponObject, true);
+
+		bool bSniperSignalValue = false;
+		if (TryReadBoolSignalsByTokens(CurrentWeaponObject, SniperScopeActivationTokens, bSniperSignalValue))
+		{
+			bSniperSignalFound = true;
+			if (bSniperSignalValue)
+			{
+				bSniperSignalActive = true;
+			}
+		}
+
+		if (bCurrentWeaponLooksSniper)
+		{
+			bSniperSignalFound = true;
+			bSniperSignalActive = true;
+		}
+	}
+
+	// If the runtime exposes an explicit zoom FOV signal, treat it as authoritative sniper context.
+	if (!bSniperSignalActive && bHasFOVSignal)
+	{
+		bSniperSignalFound = true;
+		bSniperSignalActive = true;
+	}
+
+	if (!bAimSignalActive && IsValid(AbilitySystemComponent))
+	{
+		const FGameplayTag AimTags[] =
+		{
+			FGameplayTag::RequestGameplayTag(FName(TEXT("Action.Aim")), false),
+			FGameplayTag::RequestGameplayTag(FName(TEXT("Action.Aiming")), false),
+			FGameplayTag::RequestGameplayTag(FName(TEXT("State.Aim")), false),
+			FGameplayTag::RequestGameplayTag(FName(TEXT("State.Aiming")), false),
+			FGameplayTag::RequestGameplayTag(FName(TEXT("Action.ADS")), false),
+			FGameplayTag::RequestGameplayTag(FName(TEXT("State.ADS")), false)
+		};
+		for (const FGameplayTag& Tag : AimTags)
+		{
+			if (Tag.IsValid() && AbilitySystemComponent->HasMatchingGameplayTag(Tag))
+			{
+				bAimSignalFound = true;
+				bAimSignalActive = true;
+				break;
+			}
+		}
+	}
+
+	if (!(bAimSignalFound && bAimSignalActive && bSniperSignalFound && bSniperSignalActive))
+	{
+		return false;
+	}
+
+	if (bHasFOVSignal)
+	{
+		OutDesiredFOV = DetectedFOV;
+	}
+	else if (bSniperScopeUseFallbackFOV)
+	{
+		OutDesiredFOV = SniperScopeFallbackFOV;
+	}
+
+	return true;
+}
+
+bool AGAS_MainCharacterCpp::IsSniperScopeVisualComponent(const UMeshComponent* MeshComponent, const TArray<FName>& KeepVisibleTags) const
+{
+	if (!IsValid(MeshComponent))
+	{
+		return false;
+	}
+
+	if (KeepVisibleTags.Num() > 0)
+	{
+		for (const FName& KeepTag : KeepVisibleTags)
+		{
+			if (KeepTag.IsNone())
+			{
+				continue;
+			}
+
+			if (MeshComponent->ComponentTags.Contains(KeepTag))
+			{
+				return true;
+			}
+
+			if (const AActor* OwnerActor = MeshComponent->GetOwner())
+			{
+				if (OwnerActor->Tags.Contains(KeepTag))
+				{
+					return true;
+				}
+			}
+		}
+	}
+
+	if (SniperScopeKeepVisibleTokens.Num() == 0)
+	{
+		return false;
+	}
+
+	FString SourceText = MeshComponent->GetName() + TEXT(" ") + MeshComponent->GetClass()->GetName() + TEXT(" ") + MeshComponent->GetPathName();
+	if (const AActor* OwnerActor = MeshComponent->GetOwner())
+	{
+		SourceText += TEXT(" ");
+		SourceText += OwnerActor->GetName();
+		SourceText += TEXT(" ");
+		SourceText += OwnerActor->GetPathName();
+	}
+
+	if (const USkeletalMeshComponent* SkeletalComp = Cast<USkeletalMeshComponent>(MeshComponent))
+	{
+		if (const USkeletalMesh* SkeletalMeshAsset = SkeletalComp->GetSkeletalMeshAsset())
+		{
+			SourceText += TEXT(" ");
+			SourceText += SkeletalMeshAsset->GetName();
+			SourceText += TEXT(" ");
+			SourceText += SkeletalMeshAsset->GetPathName();
+		}
+	}
+
+	if (const UStaticMeshComponent* StaticComp = Cast<UStaticMeshComponent>(MeshComponent))
+	{
+		if (const UStaticMesh* StaticMeshAsset = StaticComp->GetStaticMesh())
+		{
+			SourceText += TEXT(" ");
+			SourceText += StaticMeshAsset->GetName();
+			SourceText += TEXT(" ");
+			SourceText += StaticMeshAsset->GetPathName();
+		}
+	}
+
+	for (const FName& Tag : MeshComponent->ComponentTags)
+	{
+		SourceText += TEXT(" ");
+		SourceText += Tag.ToString();
+	}
+
+	return ContainsAnySignalToken(SourceText, SniperScopeKeepVisibleTokens);
+}
+
+void AGAS_MainCharacterCpp::CollectSniperScopeOwnerMeshes(TArray<UMeshComponent*>& OutMeshes) const
+{
+	OutMeshes.Reset();
+
+	auto AddActorMeshes = [&OutMeshes](AActor* SourceActor)
+	{
+		if (!IsValid(SourceActor))
+		{
+			return;
+		}
+
+		TInlineComponentArray<UMeshComponent*> MeshComponents(SourceActor);
+		for (UMeshComponent* MeshComponent : MeshComponents)
+		{
+			if (IsValid(MeshComponent))
+			{
+				OutMeshes.AddUnique(MeshComponent);
+			}
+		}
+	};
+
+	AddActorMeshes(const_cast<AGAS_MainCharacterCpp*>(this));
+
+	TArray<AActor*> AttachedActors;
+	const_cast<AGAS_MainCharacterCpp*>(this)->GetAttachedActors(AttachedActors, true, true);
+	for (AActor* AttachedActor : AttachedActors)
+	{
+		AddActorMeshes(AttachedActor);
+
+		// GetAttachedActors(bRecursively=true)가 ChildActor를 포함하지 못하는 엣지케이스 대비
+		TInlineComponentArray<UChildActorComponent*> AttachedChildComps(AttachedActor);
+		for (UChildActorComponent* AttachedChildComp : AttachedChildComps)
+		{
+			if (IsValid(AttachedChildComp))
+			{
+				AddActorMeshes(AttachedChildComp->GetChildActor());
+			}
+		}
+	}
+
+	TInlineComponentArray<UChildActorComponent*> ChildActorComponents(const_cast<AGAS_MainCharacterCpp*>(this));
+	for (UChildActorComponent* ChildActorComponent : ChildActorComponents)
+	{
+		if (IsValid(ChildActorComponent))
+		{
+			AddActorMeshes(ChildActorComponent->GetChildActor());
+		}
+	}
+}
+
+void AGAS_MainCharacterCpp::ApplySniperScopePresentation(float DesiredFOV, const TArray<FName>& KeepVisibleTags)
+{
+	APlayerController* LocalPC = Cast<APlayerController>(GetController());
+	if (!IsValid(LocalPC) || !LocalPC->IsLocalController())
+	{
+		return;
+	}
+
+	UCameraComponent* CameraComponent = ResolveLockOnCamera();
+	APlayerCameraManager* CameraManager = LocalPC->PlayerCameraManager;
+	if (!bHasSniperScopeStoredFOV)
+	{
+		if (IsValid(CameraComponent))
+		{
+			SniperScopeStoredFOV = CameraComponent->FieldOfView;
+			bHasSniperScopeStoredFOV = true;
+		}
+		else if (IsValid(CameraManager))
+		{
+			SniperScopeStoredFOV = CameraManager->GetFOVAngle();
+			bHasSniperScopeStoredFOV = true;
+		}
+	}
+
+	if (DesiredFOV > 1.0f && DesiredFOV < 179.0f)
+	{
+		if (IsValid(CameraManager))
+		{
+			CameraManager->SetFOV(DesiredFOV);
+		}
+	}
+
+	TArray<UMeshComponent*> TargetMeshes;
+	CollectSniperScopeOwnerMeshes(TargetMeshes);
+	for (UMeshComponent* MeshComponent : TargetMeshes)
+	{
+		if (!IsValid(MeshComponent))
+		{
+			continue;
+		}
+
+		// 반복 호출 중복 저장 방지용 공통 람다
+		auto SaveMeshStateOnce = [&](UMeshComponent* MeshComp)
+		{
+			const int32 Existing = SniperScopeMeshStates.IndexOfByPredicate(
+				[MeshComp](const FSniperScopeMeshState& S) { return S.Mesh.Get() == MeshComp; });
+			if (Existing == INDEX_NONE)
+			{
+				FSniperScopeMeshState NewState;
+				NewState.Mesh = MeshComp;
+				NewState.bVisible = MeshComp->IsVisible();
+				NewState.bHiddenInGame = MeshComp->bHiddenInGame;
+				NewState.bOwnerNoSee = MeshComp->bOwnerNoSee;
+				NewState.bOnlyOwnerSee = MeshComp->bOnlyOwnerSee;
+				SniperScopeMeshStates.Add(MoveTemp(NewState));
+			}
+		};
+
+		if (IsSniperScopeVisualComponent(MeshComponent, KeepVisibleTags))
+		{
+			// keep-visible 메쉬(스코프/레티클)도 원래 상태를 저장해야 Restore 시 정확히 복원됨
+			SaveMeshStateOnce(MeshComponent);
+			MeshComponent->SetOwnerNoSee(false);
+			MeshComponent->SetHiddenInGame(false, true);
+			MeshComponent->SetVisibility(true, true);
+			continue;
+		}
+
+		SaveMeshStateOnce(MeshComponent);
+
+		MeshComponent->SetOnlyOwnerSee(false);
+		MeshComponent->SetOwnerNoSee(true);
+		MeshComponent->SetVisibility(false, true);
+		MeshComponent->SetHiddenInGame(true, true);
+	}
+
+	bSniperScopePresentationActive = true;
+}
+
+void AGAS_MainCharacterCpp::RestoreSniperScopePresentation()
+{
+	if (!bSniperScopePresentationActive && SniperScopeMeshStates.Num() == 0 && !bHasSniperScopeStoredFOV)
+	{
+		return;
+	}
+
+	for (const FSniperScopeMeshState& State : SniperScopeMeshStates)
+	{
+		UMeshComponent* MeshComponent = State.Mesh.Get();
+		if (!IsValid(MeshComponent))
+		{
+			continue;
+		}
+
+		MeshComponent->SetOwnerNoSee(State.bOwnerNoSee);
+		MeshComponent->SetOnlyOwnerSee(State.bOnlyOwnerSee);
+		MeshComponent->SetHiddenInGame(State.bHiddenInGame, true);
+		MeshComponent->SetVisibility(State.bVisible, true);
+	}
+	SniperScopeMeshStates.Reset();
+
+	APlayerController* LocalPC = Cast<APlayerController>(GetController());
+	if (IsValid(LocalPC) && LocalPC->IsLocalController())
+	{
+		APlayerCameraManager* CameraManager = LocalPC->PlayerCameraManager;
+		if (bHasSniperScopeStoredFOV && SniperScopeStoredFOV > KINDA_SMALL_NUMBER)
+		{
+			if (UCameraComponent* CameraComponent = ResolveLockOnCamera())
+			{
+				CameraComponent->SetFieldOfView(SniperScopeStoredFOV);
+			}
+			if (IsValid(CameraManager))
+			{
+				CameraManager->UnlockFOV();
+			}
+		}
+		else if (IsValid(CameraManager))
+		{
+			CameraManager->UnlockFOV();
+		}
+	}
+
+	bSniperScopePresentationActive = false;
+	bHasSniperScopeStoredFOV = false;
+	SniperScopeStoredFOV = 0.0f;
+}
+
+void AGAS_MainCharacterCpp::UpdateSniperScopePresentation(float DeltaTime)
+{
+	if (!bEnableSniperScopePresentationPolicy)
+	{
+		RestoreSniperScopePresentation();
+		return;
+	}
+
+	SniperScopePolicyElapsedSeconds += FMath::Max(0.0f, DeltaTime);
+	const float PolicyInterval = FMath::Clamp(SniperScopePolicyIntervalSeconds, 0.01f, 0.2f);
+	if (SniperScopePolicyElapsedSeconds < PolicyInterval)
+	{
+		return;
+	}
+	SniperScopePolicyElapsedSeconds = 0.0f;
+
+	float DesiredFOV = 0.0f;
+	TArray<FName> KeepVisibleTags;
+	const bool bShouldApply = ResolveSniperScopePresentationState(DesiredFOV, KeepVisibleTags);
+	if (bShouldApply)
+	{
+		ApplySniperScopePresentation(DesiredFOV, KeepVisibleTags);
+	}
+	else
+	{
+		RestoreSniperScopePresentation();
+	}
 }
 
 void AGAS_MainCharacterCpp::HandleMiddleMouseLockOnFallback()
@@ -2505,6 +3576,91 @@ void AGAS_MainCharacterCpp::ResetHardLockCamera()
 	}
 }
 
+void AGAS_MainCharacterCpp::ApplyNativeFPSCameraDefaults()
+{
+	if (USpringArmComponent* SpringArm = ResolveLockOnSpringArm())
+	{
+		SpringArm->TargetArmLength = 0.0f;
+		SpringArm->bDoCollisionTest = false;
+		SpringArm->SocketOffset = NativeFPSCameraSocketOffset;
+		SpringArm->TargetOffset = FVector::ZeroVector;
+	}
+
+	if (bNativeFPSHideBodyMesh)
+	{
+		if (USkeletalMeshComponent* BodyMesh = GetMesh())
+		{
+			BodyMesh->SetOwnerNoSee(true);
+		}
+	}
+}
+
+void AGAS_MainCharacterCpp::NativeSwitchToFirstPerson()
+{
+	if (bNativeFPSActive)
+	{
+		return;
+	}
+
+	// TPS 상태 저장 (복귀용)
+	if (USpringArmComponent* SpringArm = ResolveLockOnSpringArm())
+	{
+		NativeStoredTPSArmLength = SpringArm->TargetArmLength;
+		NativeStoredTPSSocketOffset = SpringArm->SocketOffset;
+		NativeStoredTPSTargetOffset = SpringArm->TargetOffset;
+		bNativeStoredTPSDoCollisionTest = SpringArm->bDoCollisionTest;
+		bNativeHasTPSStored = true;
+	}
+	if (USkeletalMeshComponent* BodyMesh = GetMesh())
+	{
+		bNativeStoredTPSMeshOwnerNoSee = BodyMesh->bOwnerNoSee;
+	}
+
+	ApplyNativeFPSCameraDefaults();
+	bNativeFPSActive = true;
+
+	// 락온 기준값을 FPS 카메라 값으로 갱신
+	bHasStoredHardLockCameraDefaults = false;
+	StoreDefaultCameraValues();
+
+	NativeOnApplyFirstPersonView();
+}
+
+void AGAS_MainCharacterCpp::NativeSwitchToThirdPerson()
+{
+	if (!bNativeFPSActive)
+	{
+		return;
+	}
+
+	bNativeFPSActive = false;
+
+	if (bNativeHasTPSStored)
+	{
+		if (USpringArmComponent* SpringArm = ResolveLockOnSpringArm())
+		{
+			SpringArm->TargetArmLength = NativeStoredTPSArmLength;
+			SpringArm->SocketOffset = NativeStoredTPSSocketOffset;
+			SpringArm->TargetOffset = NativeStoredTPSTargetOffset;
+			SpringArm->bDoCollisionTest = bNativeStoredTPSDoCollisionTest;
+		}
+
+		if (bNativeFPSHideBodyMesh)
+		{
+			if (USkeletalMeshComponent* BodyMesh = GetMesh())
+			{
+				BodyMesh->SetOwnerNoSee(bNativeStoredTPSMeshOwnerNoSee);
+			}
+		}
+
+		// 락온 기준값을 TPS 카메라 값으로 갱신
+		bHasStoredHardLockCameraDefaults = false;
+		StoreDefaultCameraValues();
+	}
+
+	NativeOnApplyThirdPersonView();
+}
+
 void AGAS_MainCharacterCpp::UpdateLockOnSpringArmCollision(float DeltaTime)
 {
 	USpringArmComponent* SpringArm = ResolveLockOnSpringArm();
@@ -2513,8 +3669,11 @@ void AGAS_MainCharacterCpp::UpdateLockOnSpringArmCollision(float DeltaTime)
 		return;
 	}
 
-	// 항상 충돌 프로브 유지
-	SpringArm->bDoCollisionTest = true;
+	// FPS 모드에서는 충돌 프로브 비활성 상태 유지 (카메라 클리핑 방지)
+	if (!bNativeFPSActive)
+	{
+		SpringArm->bDoCollisionTest = true;
+	}
 
 	const bool bLockActive = IsMeleeLockOnContextActive() && IsValid(GetCurrentNativeTarget());
 

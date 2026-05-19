@@ -19,6 +19,7 @@ class UTexture2D;
 class UWidgetComponent;
 class USpringArmComponent;
 class UCameraComponent;
+class UMeshComponent;
 
 // Secondary tick function that fires in TG_PostUpdateWork — after all BP EventTicks.
 // This guarantees SweepNonTargetIcons runs after zombie BP can re-show icons.
@@ -381,6 +382,29 @@ public:
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "LockOn|Native|UI", meta = (AllowPrivateAccess = "true"))
 	bool bNativeTargetIsOnScreen = false;
 
+	// ── FPS 기본 카메라 ────────────────────────────────────────────────────
+	// true이면 BeginPlay에서 1인칭 카메라를 기본값으로 적용.
+	// = 키 CameraAction은 NativeSwitchToFirstPerson / NativeSwitchToThirdPerson으로 연결.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|FPS",
+		meta = (AllowPrivateAccess = "true"))
+	bool bNativeDefaultFirstPerson = true;
+
+	// FPS 눈 위치 오프셋 (SpringArm SocketOffset, 루트 기준).
+	// X=전방, Z=머리 높이. Blueprint Class Defaults에서 캐릭터별 미세조정.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|FPS",
+		meta = (AllowPrivateAccess = "true"))
+	FVector NativeFPSCameraSocketOffset = FVector(15.0f, 0.0f, 75.0f);
+
+	// FPS 전환 시 바디 메쉬를 자신에게 숨김 (SetOwnerNoSee). 그림자는 유지됨.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|FPS",
+		meta = (AllowPrivateAccess = "true"))
+	bool bNativeFPSHideBodyMesh = true;
+
+	// 현재 FPS 모드인지 여부. Blueprint에서 읽어 카메라 UI 상태를 동기화하세요.
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Camera|FPS",
+		meta = (AllowPrivateAccess = "true"))
+	bool bNativeFPSActive = false;
+
 	// 현재 타겟의 정규화 점수 (0~1). UMG 위젯 노출 우선순위 표시용.
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "LockOn|Native|UI", meta = (AllowPrivateAccess = "true"))
 	mutable float NativeCurrentTargetScore = 0.0f;
@@ -396,6 +420,57 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LockOn|Presentation", meta = (AllowPrivateAccess = "true"))
 	bool bShowNativeLockOnModeFeedback = true;
 
+	// Enable sniper/scope ADS presentation policy regardless of stance/view mode.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "FPS|Sniper Scope", meta = (AllowPrivateAccess = "true"))
+	bool bEnableSniperScopePresentationPolicy = true;
+
+	// Authoritative sniper state contract (interface provider) first, legacy token probing second.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "FPS|Sniper Scope", meta = (AllowPrivateAccess = "true", EditCondition = "bEnableSniperScopePresentationPolicy"))
+	bool bEnableSniperScopeProviderPipeline = true;
+
+	// Keep old runtime probing only as a migration fallback when no provider reports a valid state.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "FPS|Sniper Scope", meta = (AllowPrivateAccess = "true", EditCondition = "bEnableSniperScopePresentationPolicy"))
+	bool bAllowLegacySniperScopeSignalFallback = true;
+
+	// Re-evaluation interval for sniper ADS state. Smaller = more aggressive re-apply.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "FPS|Sniper Scope", meta = (AllowPrivateAccess = "true", ClampMin = "0.01", ClampMax = "0.2", EditCondition = "bEnableSniperScopePresentationPolicy"))
+	float SniperScopePolicyIntervalSeconds = 0.05f;
+
+	// If no explicit zoom signal is detected, fallback FOV is enforced while sniper ADS is active.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "FPS|Sniper Scope", meta = (AllowPrivateAccess = "true", EditCondition = "bEnableSniperScopePresentationPolicy"))
+	bool bSniperScopeUseFallbackFOV = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "FPS|Sniper Scope", meta = (AllowPrivateAccess = "true", ClampMin = "10.0", ClampMax = "90.0", EditCondition = "bEnableSniperScopePresentationPolicy && bSniperScopeUseFallbackFOV"))
+	float SniperScopeFallbackFOV = 25.0f;
+
+	// GAS 태그 기반 스나이퍼 무기 식별 (Phase 3 주 방식).
+	// 비어있지 않으면 권위적으로 동작 — 레거시 문자열 폴백을 건너뜀.
+	// 권장 태그: State.Weapon.Sniper (무기 장착 시 ASC에 부여).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "FPS|Sniper Scope",
+		meta = (AllowPrivateAccess = "true", EditCondition = "bEnableSniperScopePresentationPolicy"))
+	FGameplayTagContainer NativeSniperWeaponTags;
+
+	// GAS 태그 기반 스나이퍼 ADS 식별.
+	// 비어있으면 기존 Action.Aim / State.ADS 계열 태그로 폴백.
+	// 권장 태그: State.Weapon.SniperADS (스코프 ADS 진입 시 ASC에 부여).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "FPS|Sniper Scope",
+		meta = (AllowPrivateAccess = "true", EditCondition = "bEnableSniperScopePresentationPolicy"))
+	FGameplayTagContainer NativeSniperADSTags;
+
+	// Name/path tokens that identify sniper-capable weapons and scope actors/components.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "FPS|Sniper Scope", meta = (AllowPrivateAccess = "true", EditCondition = "bEnableSniperScopePresentationPolicy"))
+	TArray<FString> SniperScopeActivationTokens = { TEXT("Sniper"), TEXT("Scope"), TEXT("AS50") };
+
+	// Meshes matching these tokens remain visible during sniper ADS (scope optic/reticle/lens).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "FPS|Sniper Scope", meta = (AllowPrivateAccess = "true", EditCondition = "bEnableSniperScopePresentationPolicy"))
+	TArray<FString> SniperScopeKeepVisibleTokens = { TEXT("Scope"), TEXT("Optic"), TEXT("Reticle"), TEXT("Lens") };
+
+	// Signal tokens for determining ADS/zoom state from owner/components/weapon objects.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "FPS|Sniper Scope", meta = (AllowPrivateAccess = "true", EditCondition = "bEnableSniperScopePresentationPolicy"))
+	TArray<FString> SniperScopeAimSignalTokens = { TEXT("Aim"), TEXT("ADS"), TEXT("Scope") };
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "FPS|Sniper Scope", meta = (AllowPrivateAccess = "true", EditCondition = "bEnableSniperScopePresentationPolicy"))
+	TArray<FString> SniperScopeFovSignalTokens = { TEXT("FOV"), TEXT("Zoom"), TEXT("Scope") };
 
 
 protected:
@@ -459,6 +534,25 @@ public:
 	virtual void PossessedBy(AController* NewController) override;
 	virtual void OnRep_PlayerState() override;
 
+	// FPS로 전환. Blueprint에서 = 키 CameraAction에 연결하거나 직접 호출.
+	// TPS SpringArm 값을 저장하고 눈 위치 카메라·메쉬 숨김 적용.
+	UFUNCTION(BlueprintCallable, Category = "Camera|FPS")
+	void NativeSwitchToFirstPerson();
+
+	// TPS로 전환. 저장된 SpringArm 값을 복원하고 메쉬 숨김 해제.
+	UFUNCTION(BlueprintCallable, Category = "Camera|FPS")
+	void NativeSwitchToThirdPerson();
+
+	// BeginPlay·NativeSwitchToFirstPerson 호출 시 발생.
+	// Blueprint에서 구현하여 FPS 관련 UI 변수를 동기화하세요.
+	UFUNCTION(BlueprintImplementableEvent, Category = "Camera|FPS")
+	void NativeOnApplyFirstPersonView();
+
+	// NativeSwitchToThirdPerson 호출 시 발생.
+	// Blueprint에서 구현하여 TPS 관련 UI 변수를 동기화하세요.
+	UFUNCTION(BlueprintImplementableEvent, Category = "Camera|FPS")
+	void NativeOnApplyThirdPersonView();
+
 	UFUNCTION(BlueprintCallable, Category = "Pawn|Input", meta = (DisplayName = "Try Create Inputs Binds For GAS", Keywords = "Inputs Player"))
 		virtual void TryCreateInputsGAS();
 
@@ -501,8 +595,25 @@ private:
 	UCameraComponent* ResolveLockOnCamera() const;
 	void StoreDefaultCameraValues();
 	void ResetHardLockCamera();
+	void ApplyNativeFPSCameraDefaults();
+
+	// TPS 복귀용 저장값 (NativeSwitchToFirstPerson 호출 시 기록)
+	float NativeStoredTPSArmLength = 350.0f;
+	FVector NativeStoredTPSSocketOffset = FVector::ZeroVector;
+	FVector NativeStoredTPSTargetOffset = FVector::ZeroVector;
+	bool bNativeStoredTPSDoCollisionTest = true;
+	bool bNativeStoredTPSMeshOwnerNoSee = false;
+	bool bNativeHasTPSStored = false;
 	bool IsLockOnTargetUsable(AActor* Candidate, bool bApplyHardLockHysteresis = false) const;
 	bool IsMeleeLockOnContextActive() const;
+	void UpdateSniperScopePresentation(float DeltaTime);
+	bool ResolveSniperScopePresentationState(float& OutDesiredFOV, TArray<FName>& OutKeepVisibleTags) const;
+	bool TryResolveSniperScopePresentationFromProviders(float& OutDesiredFOV, TArray<FName>& OutKeepVisibleTags, bool& bOutHasAuthoritativeProvider) const;
+	void CollectSniperScopeProviders(TArray<UObject*>& OutProviders) const;
+	void ApplySniperScopePresentation(float DesiredFOV, const TArray<FName>& KeepVisibleTags);
+	void RestoreSniperScopePresentation();
+	bool IsSniperScopeVisualComponent(const UMeshComponent* MeshComponent, const TArray<FName>& KeepVisibleTags) const;
+	void CollectSniperScopeOwnerMeshes(TArray<UMeshComponent*>& OutMeshes) const;
 	void UpdateNativeSoftTargeting(float DeltaTime);
 	void UpdateLockOnSpringArmCollision(float DeltaTime);
 	void UpdateLockOnCameraTransition(float DeltaTime);
@@ -528,6 +639,7 @@ private:
 	float LastMouseWheelSwitchTimeSeconds = -1000.0f;
 	float LastMouseFlickSwitchTimeSeconds = -1000.0f;
 	float LastMiddleMouseToggleTimeSeconds = -1000.0f;
+	float SniperScopePolicyElapsedSeconds = 0.0f;
 	bool bLockOnCameraTransitionActive = false;
 	float LockOnCameraTransitionElapsed = 0.0f;
 	int32 LastFlickLockedDirection = 0;
@@ -538,6 +650,19 @@ private:
 	float NativeSoftAttackCorrectionRemaining = 0.0f;
 	bool bWasNativeSoftAttackTagActive = false;
 	bool bNativeHardLockActive = false;
+	bool bSniperScopePresentationActive = false;
+	bool bHasSniperScopeStoredFOV = false;
+	float SniperScopeStoredFOV = 0.0f;
+
+	struct FSniperScopeMeshState
+	{
+		TWeakObjectPtr<UMeshComponent> Mesh = nullptr;
+		bool bVisible = true;
+		bool bHiddenInGame = false;
+		bool bOwnerNoSee = false;
+		bool bOnlyOwnerSee = false;
+	};
+	TArray<FSniperScopeMeshState> SniperScopeMeshStates;
 
 	FLockOnSweepTickFunction LockOnSweepTick;
 

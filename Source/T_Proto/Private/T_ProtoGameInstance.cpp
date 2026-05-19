@@ -1,8 +1,10 @@
 ﻿#include "T_ProtoGameInstance.h"
 
 #include "Blueprint/UserWidget.h"
+#include "Engine/AssetManager.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
+#include "Misc/ConfigCacheIni.h"
 #include "TimerManager.h"
 
 void UT_ProtoGameInstance::Init()
@@ -13,12 +15,15 @@ void UT_ProtoGameInstance::Init()
 		this, &UT_ProtoGameInstance::OnPreLoadMap);
 	PostLoadMapHandle = FCoreUObjectDelegates::PostLoadMapWithWorld.AddUObject(
 		this, &UT_ProtoGameInstance::OnPostLoadMap);
+
+	PreloadMainMenuResources();
 }
 
 void UT_ProtoGameInstance::Shutdown()
 {
 	FCoreUObjectDelegates::PreLoadMap.Remove(PreLoadMapHandle);
 	FCoreUObjectDelegates::PostLoadMapWithWorld.Remove(PostLoadMapHandle);
+	MainMenuPreloadHandle.Reset();
 	Super::Shutdown();
 }
 
@@ -79,6 +84,13 @@ void UT_ProtoGameInstance::OnPostLoadMap(UWorld* LoadedWorld)
 	}
 
 	ApplyMainMenuInputMode(LoadedWorld);
+
+	// 메인메뉴를 벗어나면 프리로드 에셋 릴리즈 (인게임 내내 수백 MB 상주 방지)
+	if (LoadedWorld && !IsMainMenuMapName(LoadedWorld->GetMapName()))
+	{
+		MainMenuPreloadHandle.Reset();
+		MainMenuPreloadedAssets.Reset();
+	}
 }
 
 void UT_ProtoGameInstance::HideLoadingScreen()
@@ -89,6 +101,90 @@ void UT_ProtoGameInstance::HideLoadingScreen()
 		ActiveLoadingScreen = nullptr;
 	}
 	bLoadingScreenActive = false;
+}
+
+void UT_ProtoGameInstance::PreloadMainMenuResources()
+{
+	MainMenuPreloadedAssets.Reset();
+	if (!bPreloadMainMenuResourcesOnInit)
+	{
+		return;
+	}
+
+	TSet<FSoftObjectPath> AssetPathsToLoad;
+	auto AddPathIfValid = [&AssetPathsToLoad](const FSoftObjectPath& Path)
+	{
+		if (Path.IsValid())
+		{
+			AssetPathsToLoad.Add(Path);
+		}
+	};
+
+	if (!LoadingScreenWidgetClass.IsNull())
+	{
+		AddPathIfValid(LoadingScreenWidgetClass.ToSoftObjectPath());
+	}
+
+	auto AddMainMenuMapSetting = [this, &AddPathIfValid](const TCHAR* KeyName)
+	{
+		if (!GConfig)
+		{
+			return;
+		}
+
+		FString MapPathString;
+		if (!GConfig->GetString(TEXT("/Script/EngineSettings.GameMapsSettings"), KeyName, MapPathString, GEngineIni))
+		{
+			return;
+		}
+
+		if (MapPathString.IsEmpty() || !IsMainMenuMapName(MapPathString))
+		{
+			return;
+		}
+
+		AddPathIfValid(FSoftObjectPath(MapPathString));
+	};
+
+	AddMainMenuMapSetting(TEXT("EditorStartupMap"));
+	AddMainMenuMapSetting(TEXT("GameDefaultMap"));
+
+	for (const FSoftObjectPath& ExtraPath : MainMenuPreloadAssetPaths)
+	{
+		AddPathIfValid(ExtraPath);
+	}
+
+	TArray<FSoftObjectPath> PathsArray = AssetPathsToLoad.Array();
+	if (PathsArray.IsEmpty())
+	{
+		return;
+	}
+
+	FStreamableManager& Streamable = UAssetManager::Get().GetStreamableManager();
+	MainMenuPreloadHandle = Streamable.RequestAsyncLoad(
+		PathsArray,
+		FStreamableDelegate::CreateUObject(this, &UT_ProtoGameInstance::OnMainMenuPreloadComplete),
+		FStreamableManager::DefaultAsyncLoadPriority,
+		false,
+		false,
+		TEXT("MainMenuPreload"));
+}
+
+void UT_ProtoGameInstance::OnMainMenuPreloadComplete()
+{
+	if (!MainMenuPreloadHandle.IsValid())
+	{
+		return;
+	}
+	TArray<UObject*> LoadedObjects;
+	MainMenuPreloadHandle->GetLoadedAssets(LoadedObjects);
+	for (UObject* Obj : LoadedObjects)
+	{
+		if (IsValid(Obj))
+		{
+			MainMenuPreloadedAssets.Add(Obj);
+		}
+	}
 }
 
 bool UT_ProtoGameInstance::IsMainMenuMapName(const FString& MapName) const

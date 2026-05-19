@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Engine/GameInstance.h"
+#include "Engine/StreamableManager.h"
 #include "T_ProtoGameInstance.generated.h"
 
 class UUserWidget;
@@ -28,6 +29,14 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Loading Screen")
 	TArray<FString> LoadingScreenExcludedMapNames = { TEXT("MainmenuLevel"), TEXT("MainMenu") };
 
+	// When enabled, preload main menu related assets during GameInstance init.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Main Menu|Preload")
+	bool bPreloadMainMenuResourcesOnInit = true;
+
+	// Additional menu assets/classes to force-load (Widget BP classes, DataAssets, etc.).
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Main Menu|Preload")
+	TArray<FSoftObjectPath> MainMenuPreloadAssetPaths;
+
 private:
 	UPROPERTY(Transient)
 	TObjectPtr<UUserWidget> ActiveLoadingScreen = nullptr;
@@ -39,9 +48,16 @@ private:
 	bool bLoadingScreenActive = false;
 	double LoadingScreenStartTime = 0.0;
 
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UObject>> MainMenuPreloadedAssets;
+
+	TSharedPtr<FStreamableHandle> MainMenuPreloadHandle;
+
 	void OnPreLoadMap(const FString& MapName);
 	void OnPostLoadMap(UWorld* LoadedWorld);
 	void HideLoadingScreen();
+	void PreloadMainMenuResources();
+	void OnMainMenuPreloadComplete();
 
 	// Main menu UX safety: ensure cursor + UI-only input after map load.
 	void ApplyMainMenuInputMode(UWorld* LoadedWorld);
