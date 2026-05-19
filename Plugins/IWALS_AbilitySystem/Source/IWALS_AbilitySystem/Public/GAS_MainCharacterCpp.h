@@ -389,6 +389,21 @@ public:
 		meta = (AllowPrivateAccess = "true"))
 	bool bNativeDefaultFirstPerson = true;
 
+	// ALS CameraSystem(BP) reads ViewMode as authority. Keep this bridge enabled to drive that state from C++.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|FPS",
+		meta = (AllowPrivateAccess = "true"))
+	bool bNativeUseALSViewModeBridge = true;
+
+	// Poll interval for ALS ViewMode sync.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|FPS",
+		meta = (AllowPrivateAccess = "true", EditCondition = "bNativeUseALSViewModeBridge", ClampMin = "0.01", ClampMax = "0.2"))
+	float NativeALSViewModeSyncIntervalSeconds = 0.05f;
+
+	// Startup bootstrap window to re-apply default FPS state after BP BeginPlay camera writes.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|FPS",
+		meta = (AllowPrivateAccess = "true", EditCondition = "bNativeDefaultFirstPerson && bNativeUseALSViewModeBridge", ClampMin = "0.0", ClampMax = "3.0"))
+	float NativeFirstPersonBootstrapDurationSeconds = 0.35f;
+
 	// FPS 눈 위치 오프셋 (SpringArm SocketOffset, 루트 기준).
 	// X=전방, Z=머리 높이. Blueprint Class Defaults에서 캐릭터별 미세조정.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|FPS",
@@ -596,6 +611,9 @@ private:
 	void StoreDefaultCameraValues();
 	void ResetHardLockCamera();
 	void ApplyNativeFPSCameraDefaults();
+	bool ApplyALSViewModeBridge(bool bFirstPerson, bool bBroadcastChangeEvent);
+	bool ReadALSViewModeBridge(bool& bOutFirstPerson) const;
+	void SyncNativeFPSModeFromALSViewMode(float DeltaTime);
 
 	// TPS 복귀용 저장값 (NativeSwitchToFirstPerson 호출 시 기록)
 	float NativeStoredTPSArmLength = 350.0f;
@@ -636,6 +654,10 @@ private:
 	bool bLastKnownMeleeContextActive = false;
 	bool bWasMiddleMousePressed = false;
 	float PreviousMouseWheelAxisValue = 0.0f;
+	float NativeALSViewModeSyncElapsedSeconds = 0.0f;
+	float NativeFirstPersonBootstrapRemainingSeconds = 0.0f;
+	bool bNativeHasObservedALSViewMode = false;
+	bool bNativeLastObservedALSFirstPerson = false;
 	float LastMouseWheelSwitchTimeSeconds = -1000.0f;
 	float LastMouseFlickSwitchTimeSeconds = -1000.0f;
 	float LastMiddleMouseToggleTimeSeconds = -1000.0f;

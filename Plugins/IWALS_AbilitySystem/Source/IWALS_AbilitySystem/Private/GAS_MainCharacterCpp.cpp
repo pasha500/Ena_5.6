@@ -60,6 +60,123 @@ namespace
 
 	const TCHAR* CombatFuryLockOnTypeEnumPath = TEXT("/Game/CombatFury/CF_Assets/Components/LockOn_Component/E_LockOnType.E_LockOnType");
 
+	bool ResolveNamedEnumValue(UEnum* EnumAsset, const TArray<FString>& SearchTokens, int32 FallbackOrdinal, int64& OutValue)
+	{
+		if (!IsValid(EnumAsset))
+		{
+			return false;
+		}
+
+		for (int32 EnumIndex = 0; EnumIndex < EnumAsset->NumEnums(); ++EnumIndex)
+		{
+			const FString NameString = EnumAsset->GetNameStringByIndex(EnumIndex);
+			if (NameString.Contains(TEXT("MAX"), ESearchCase::IgnoreCase))
+			{
+				continue;
+			}
+
+			for (const FString& Token : SearchTokens)
+			{
+				if (!Token.IsEmpty() && NameString.Contains(Token, ESearchCase::IgnoreCase))
+				{
+					OutValue = EnumAsset->GetValueByIndex(EnumIndex);
+					return true;
+				}
+			}
+		}
+
+		const int32 EnumCount = EnumAsset->NumEnums();
+		const int32 UsableCount = EnumCount > 0 ? EnumCount - 1 : 0;
+		if (UsableCount <= 0)
+		{
+			return false;
+		}
+
+		const int32 SafeOrdinal = FMath::Clamp(FallbackOrdinal, 0, UsableCount - 1);
+		OutValue = EnumAsset->GetValueByIndex(SafeOrdinal);
+		return true;
+	}
+
+	bool TryResolveALSViewModeEnumValuesFromObject(UObject* Object, int64& OutThirdValue, int64& OutFirstValue)
+	{
+		OutThirdValue = 0;
+		OutFirstValue = 1;
+
+		if (!IsValid(Object))
+		{
+			return false;
+		}
+
+		UEnum* ViewModeEnum = nullptr;
+
+		if (FProperty* ViewModeProperty = Object->GetClass()->FindPropertyByName(FName(TEXT("ViewMode"))))
+		{
+			if (FEnumProperty* EnumProperty = CastField<FEnumProperty>(ViewModeProperty))
+			{
+				ViewModeEnum = EnumProperty->GetEnum();
+			}
+			else if (FByteProperty* ByteProperty = CastField<FByteProperty>(ViewModeProperty))
+			{
+				ViewModeEnum = ByteProperty->Enum;
+			}
+		}
+
+		if (!IsValid(ViewModeEnum))
+		{
+			for (TFieldIterator<FProperty> It(Object->GetClass(), EFieldIterationFlags::IncludeSuper); It; ++It)
+			{
+				FProperty* Property = *It;
+				if (!Property || !Property->GetName().Contains(TEXT("ViewMode"), ESearchCase::IgnoreCase))
+				{
+					continue;
+				}
+
+				if (FEnumProperty* EnumProperty = CastField<FEnumProperty>(Property))
+				{
+					UEnum* CandidateEnum = EnumProperty->GetEnum();
+					if (IsValid(CandidateEnum) && CandidateEnum->GetName().Contains(TEXT("ALS_ViewMode"), ESearchCase::IgnoreCase))
+					{
+						ViewModeEnum = CandidateEnum;
+						break;
+					}
+				}
+				else if (FByteProperty* ByteProperty = CastField<FByteProperty>(Property))
+				{
+					UEnum* CandidateEnum = ByteProperty->Enum;
+					if (IsValid(CandidateEnum) && CandidateEnum->GetName().Contains(TEXT("ALS_ViewMode"), ESearchCase::IgnoreCase))
+					{
+						ViewModeEnum = CandidateEnum;
+						break;
+					}
+				}
+			}
+		}
+
+		if (!IsValid(ViewModeEnum))
+		{
+			return false;
+		}
+
+		int64 ThirdValue = OutThirdValue;
+		int64 FirstValue = OutFirstValue;
+		ResolveNamedEnumValue(ViewModeEnum, { TEXT("Third"), TEXT("TP") }, 0, ThirdValue);
+		ResolveNamedEnumValue(ViewModeEnum, { TEXT("First"), TEXT("FP") }, 1, FirstValue);
+
+		if (ThirdValue == FirstValue)
+		{
+			const int32 EnumCount = ViewModeEnum->NumEnums();
+			const int32 UsableCount = EnumCount > 0 ? EnumCount - 1 : 0;
+			if (UsableCount > 1)
+			{
+				FirstValue = ViewModeEnum->GetValueByIndex(1);
+			}
+		}
+
+		OutThirdValue = ThirdValue;
+		OutFirstValue = FirstValue;
+		return true;
+	}
+
 	void ShowNativeLockOnModeFeedback(AGAS_MainCharacterCpp* Character, const FString& Message, const FColor& Color, float DurationSeconds = 0.75f)
 	{
 		if (!IsValid(Character) || !Character->bShowNativeLockOnModeFeedback || !GEngine)
@@ -1969,9 +2086,14 @@ void AGAS_MainCharacterCpp::BeginPlay()
 	SniperScopeMeshStates.Reset();
 	bNativeFPSActive = false;
 	bNativeHasTPSStored = false;
+	NativeALSViewModeSyncElapsedSeconds = 0.0f;
+	NativeFirstPersonBootstrapRemainingSeconds = 0.0f;
+	bNativeHasObservedALSViewMode = false;
+	bNativeLastObservedALSFirstPerson = false;
 	if (bNativeDefaultFirstPerson)
 	{
 		NativeSwitchToFirstPerson();
+		NativeFirstPersonBootstrapRemainingSeconds = FMath::Max(0.0f, NativeFirstPersonBootstrapDurationSeconds);
 	}
 	StoreDefaultCameraValues();
 	EnsureRaidCompassWidget();
@@ -2090,6 +2212,7 @@ void AGAS_MainCharacterCpp::Tick(float DeltaTime)
 	UpdateNativeSoftTargeting(DeltaTime);
 
 	Super::Tick(DeltaTime);
+	SyncNativeFPSModeFromALSViewMode(DeltaTime);
 
 	UpdateTargetIconVisibility();
 	UpdateLockOnSpringArmCollision(DeltaTime);
@@ -3595,6 +3718,172 @@ void AGAS_MainCharacterCpp::ApplyNativeFPSCameraDefaults()
 	}
 }
 
+bool AGAS_MainCharacterCpp::ApplyALSViewModeBridge(bool bFirstPerson, bool bBroadcastChangeEvent)
+{
+	if (!bNativeUseALSViewModeBridge)
+	{
+		return false;
+	}
+
+	int64 ThirdValue = 0;
+	int64 FirstValue = 1;
+	TryResolveALSViewModeEnumValuesFromObject(this, ThirdValue, FirstValue);
+	const int64 DesiredValue = bFirstPerson ? FirstValue : ThirdValue;
+
+	bool bApplied = false;
+	bApplied |= WriteIntPropertyByNames(this, { TEXT("ViewMode") }, DesiredValue);
+
+	// Also cover projects where ViewMode is wrapped/duplicated in child BP variables.
+	for (TFieldIterator<FProperty> It(GetClass(), EFieldIterationFlags::IncludeSuper); It; ++It)
+	{
+		FProperty* Property = *It;
+		if (!Property || !Property->GetName().Contains(TEXT("ViewMode"), ESearchCase::IgnoreCase))
+		{
+			continue;
+		}
+
+		if (FEnumProperty* EnumProperty = CastField<FEnumProperty>(Property))
+		{
+			if (UEnum* EnumAsset = EnumProperty->GetEnum();
+				IsValid(EnumAsset) && EnumAsset->GetName().Contains(TEXT("ALS_ViewMode"), ESearchCase::IgnoreCase))
+			{
+				if (FNumericProperty* UnderlyingProperty = EnumProperty->GetUnderlyingProperty())
+				{
+					UnderlyingProperty->SetIntPropertyValue(UnderlyingProperty->ContainerPtrToValuePtr<void>(this), static_cast<uint64>(DesiredValue));
+					bApplied = true;
+				}
+			}
+		}
+		else if (FByteProperty* ByteProperty = CastField<FByteProperty>(Property))
+		{
+			if (UEnum* EnumAsset = ByteProperty->Enum;
+				IsValid(EnumAsset) && EnumAsset->GetName().Contains(TEXT("ALS_ViewMode"), ESearchCase::IgnoreCase))
+			{
+				ByteProperty->SetPropertyValue_InContainer(this, static_cast<uint8>(FMath::Clamp<int64>(DesiredValue, 0, 255)));
+				bApplied = true;
+			}
+		}
+	}
+
+	if (bBroadcastChangeEvent)
+	{
+		bApplied |= CallFunctionSetIntArg(
+			this,
+			{
+				TEXT("OnViewModeChanged"),
+				TEXT("SetViewMode"),
+				TEXT("SetCameraViewMode"),
+				TEXT("SetView_Mode"),
+				TEXT("SetCameraMode")
+			},
+			DesiredValue);
+	}
+
+	return bApplied;
+}
+
+bool AGAS_MainCharacterCpp::ReadALSViewModeBridge(bool& bOutFirstPerson) const
+{
+	if (!bNativeUseALSViewModeBridge)
+	{
+		return false;
+	}
+
+	int32 CurrentValue = 0;
+	if (!ReadIntPropertyByNames(const_cast<AGAS_MainCharacterCpp*>(this), { TEXT("ViewMode") }, CurrentValue))
+	{
+		return false;
+	}
+
+	int64 ThirdValue = 0;
+	int64 FirstValue = 1;
+	TryResolveALSViewModeEnumValuesFromObject(const_cast<AGAS_MainCharacterCpp*>(this), ThirdValue, FirstValue);
+
+	if (CurrentValue == static_cast<int32>(FirstValue))
+	{
+		bOutFirstPerson = true;
+		return true;
+	}
+
+	if (CurrentValue == static_cast<int32>(ThirdValue))
+	{
+		bOutFirstPerson = false;
+		return true;
+	}
+
+	// Unknown/extended enum entry: treat any non-third value as first-person like.
+	bOutFirstPerson = (CurrentValue != static_cast<int32>(ThirdValue));
+	return true;
+}
+
+void AGAS_MainCharacterCpp::SyncNativeFPSModeFromALSViewMode(float DeltaTime)
+{
+	if (!bNativeUseALSViewModeBridge)
+	{
+		return;
+	}
+
+	NativeALSViewModeSyncElapsedSeconds += FMath::Max(0.0f, DeltaTime);
+	const float SyncInterval = FMath::Clamp(NativeALSViewModeSyncIntervalSeconds, 0.01f, 0.2f);
+	if (NativeALSViewModeSyncElapsedSeconds < SyncInterval)
+	{
+		return;
+	}
+	NativeALSViewModeSyncElapsedSeconds = 0.0f;
+
+	if (NativeFirstPersonBootstrapRemainingSeconds > 0.0f)
+	{
+		NativeFirstPersonBootstrapRemainingSeconds = FMath::Max(0.0f, NativeFirstPersonBootstrapRemainingSeconds - SyncInterval);
+		if (!bNativeFPSActive)
+		{
+			NativeSwitchToFirstPerson();
+		}
+		else
+		{
+			ApplyALSViewModeBridge(true, true);
+		}
+		return;
+	}
+
+	bool bALSFirstPerson = false;
+	if (!ReadALSViewModeBridge(bALSFirstPerson))
+	{
+		return;
+	}
+
+	const bool bHadObservedALSViewMode = bNativeHasObservedALSViewMode;
+	const bool bObservedALSViewModeChange =
+		!bHadObservedALSViewMode || (bNativeLastObservedALSFirstPerson != bALSFirstPerson);
+	bNativeHasObservedALSViewMode = true;
+	bNativeLastObservedALSFirstPerson = bALSFirstPerson;
+
+	if (bALSFirstPerson != bNativeFPSActive)
+	{
+		// Accept external ViewMode toggles only on actual value edges.
+		// This keeps legacy CameraAction toggles working while preventing continuous BP overwrite loops.
+		if (bHadObservedALSViewMode && bObservedALSViewModeChange)
+		{
+			if (bALSFirstPerson)
+			{
+				NativeSwitchToFirstPerson();
+			}
+			else
+			{
+				NativeSwitchToThirdPerson();
+			}
+			return;
+		}
+
+		// Persistent mismatch without a new edge usually means another graph is force-writing ViewMode.
+		// Keep native state authoritative in that case.
+		ApplyALSViewModeBridge(bNativeFPSActive, false);
+		return;
+	}
+
+	// Keep ALS ViewMode aligned with native state even when no transition happened this tick.
+	ApplyALSViewModeBridge(bNativeFPSActive, false);
+}
+
 void AGAS_MainCharacterCpp::NativeSwitchToFirstPerson()
 {
 	if (bNativeFPSActive)
@@ -3616,6 +3905,7 @@ void AGAS_MainCharacterCpp::NativeSwitchToFirstPerson()
 		bNativeStoredTPSMeshOwnerNoSee = BodyMesh->bOwnerNoSee;
 	}
 
+	ApplyALSViewModeBridge(true, true);
 	ApplyNativeFPSCameraDefaults();
 	bNativeFPSActive = true;
 
@@ -3633,6 +3923,7 @@ void AGAS_MainCharacterCpp::NativeSwitchToThirdPerson()
 		return;
 	}
 
+	ApplyALSViewModeBridge(false, true);
 	bNativeFPSActive = false;
 
 	if (bNativeHasTPSStored)
